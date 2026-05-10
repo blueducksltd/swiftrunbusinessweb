@@ -10,7 +10,7 @@ import { setSession } from "@/lib/session";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ businessName: "", email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,7 +28,7 @@ export default function LoginPage() {
         return;
       }
       const shopDoc = snap.docs[0];
-      setSession(shopDoc.id, shopDoc.data().name ?? form.businessName);
+      setSession(shopDoc.id, shopDoc.data().name ?? "");
       router.push("/dashboard");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -77,19 +77,6 @@ export default function LoginPage() {
 
         <div className="bg-white rounded-2xl border border-slate-200 p-7">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                Business Name
-              </label>
-              <input
-                type="text"
-                value={form.businessName}
-                onChange={(e) => setForm((p) => ({ ...p, businessName: e.target.value }))}
-                placeholder="K'BAN Stores"
-                className="w-full h-11 rounded-lg border-2 border-[#056abf] bg-blue-50/60 px-4 text-sm font-medium outline-none focus:ring-2 focus:ring-[#056abf]/20 transition-all placeholder:text-slate-400"
-              />
-            </div>
-
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
               <input
