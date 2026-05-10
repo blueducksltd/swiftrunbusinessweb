@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { subscribeToOrders, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 
-type OrderStatus = "Preparing" | "Ready" | "Picked Up" | "Cancelled";
+type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
 
 type DisplayOrder = {
   firestoreId: string;
@@ -24,42 +24,61 @@ type DisplayOrder = {
 };
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
-  Preparing: "bg-amber-50 text-amber-700",
-  Ready: "bg-green-50 text-green-700",
-  "Picked Up": "bg-blue-50 text-[#056abf]",
-  Cancelled: "bg-red-50 text-red-700",
+  New:          "bg-purple-50 text-purple-700",
+  Preparing:    "bg-amber-50 text-amber-700",
+  Ready:        "bg-green-50 text-green-700",
+  "Picked Up":  "bg-blue-50 text-[#056abf]",
+  Cancelled:    "bg-red-50 text-red-700",
 };
 
 const TABS: { label: string; value: OrderStatus | "All" }[] = [
-  { label: "All Orders", value: "All" },
-  { label: "Preparing", value: "Preparing" },
-  { label: "Ready", value: "Ready" },
-  { label: "Picked Up", value: "Picked Up" },
-  { label: "Cancelled", value: "Cancelled" },
+  { label: "All Orders",  value: "All" },
+  { label: "New",         value: "New" },
+  { label: "Preparing",   value: "Preparing" },
+  { label: "Ready",       value: "Ready" },
+  { label: "Picked Up",   value: "Picked Up" },
+  { label: "Cancelled",   value: "Cancelled" },
 ];
 
 const TAB_ACTIVE: Record<string, string> = {
-  All: "bg-slate-900 text-white",
-  Preparing: "bg-amber-500 text-white",
-  Ready: "bg-green-600 text-white",
+  All:         "bg-slate-900 text-white",
+  New:         "bg-purple-600 text-white",
+  Preparing:   "bg-amber-500 text-white",
+  Ready:       "bg-green-600 text-white",
   "Picked Up": "bg-[#056abf] text-white",
-  Cancelled: "bg-red-600 text-white",
+  Cancelled:   "bg-red-600 text-white",
 };
 
-const STEPS: OrderStatus[] = ["Preparing", "Ready", "Picked Up"];
+const STEPS: OrderStatus[] = ["New", "Preparing", "Ready", "Picked Up"];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
-  Preparing: "bg-amber-100",
-  Ready: "bg-green-100",
+  New:         "bg-purple-100",
+  Preparing:   "bg-amber-100",
+  Ready:       "bg-green-100",
   "Picked Up": "bg-blue-100",
-  Cancelled: "bg-red-100",
+  Cancelled:   "bg-red-100",
 };
 
 function mapStatus(s: ErrandStatus): OrderStatus {
   if (s === "cancelled") return "Cancelled";
-  if (s === "ready") return "Ready";
   if (s === "picked_up" || s === "delivered") return "Picked Up";
-  return "Preparing";
+  if (s === "ready") return "Ready";
+  if (s === "preparing") return "Preparing";
+  // pending, accepted, driver_at_shop → store hasn't acted yet
+  return "New";
+}
+
+// What Firestore status the store should set next when they click the action button.
+function nextFirestoreStatus(current: ErrandStatus): ErrandStatus | null {
+  if (current === "pending" || current === "accepted" || current === "driver_at_shop") return "preparing";
+  if (current === "preparing") return "ready";
+  return null; // no store action for ready / picked_up / delivered / cancelled
+}
+
+function actionLabel(current: ErrandStatus): string | null {
+  if (current === "pending" || current === "accepted" || current === "driver_at_shop") return "Start Preparing";
+  if (current === "preparing") return "Mark Ready";
+  return null;
 }
 
 function fmt(n: number) {
@@ -100,9 +119,9 @@ export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState<OrderStatus | "All">("All");
   const [detailOrder, setDetailOrder] = useState<DisplayOrder | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [completeOpen, setCompleteOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const pendingCompleteId = useRef<string | null>(null);
+  const pendingActionId = useRef<string | null>(null);
 
   const playSound = useCallback(() => {
     try {
@@ -131,27 +150,28 @@ export default function OrdersPage() {
 
   const filtered = activeTab === "All" ? orders : orders.filter((o) => o.status === activeTab);
 
-  async function handleMarkComplete() {
-    const id = pendingCompleteId.current;
+  async function handleAction() {
+    const id = pendingActionId.current;
     if (!id) return;
+    const order = orders.find((o) => o.firestoreId === id);
+    if (!order) return;
+    const next = nextFirestoreStatus(order.firestoreStatus);
+    if (!next) return;
+
     setUpdating(true);
     try {
-      const order = orders.find((o) => o.firestoreId === id);
-      if (!order) return;
-      const nextStatus: ErrandStatus =
-        order.firestoreStatus === "ready" ? "ready" : "ready";
-      await updateOrderStatus(id, nextStatus);
+      await updateOrderStatus(id, next);
       setOrders((prev) =>
         prev.map((o) =>
           o.firestoreId === id
-            ? { ...o, status: mapStatus(nextStatus), firestoreStatus: nextStatus, color: STATUS_COLORS[mapStatus(nextStatus)] }
+            ? { ...o, status: mapStatus(next), firestoreStatus: next, color: STATUS_COLORS[mapStatus(next)] }
             : o
         )
       );
     } finally {
       setUpdating(false);
-      setCompleteOpen(false);
-      pendingCompleteId.current = null;
+      setConfirmOpen(false);
+      pendingActionId.current = null;
     }
   }
 
@@ -264,20 +284,20 @@ export default function OrdersPage() {
 
             <div className="px-6 py-5">
               {detailOrder.status !== "Cancelled" && (
-                <div className="flex items-center gap-2 mb-6">
+                <div className="flex items-center gap-1 mb-6">
                   {STEPS.map((step, i) => {
                     const stepIndex = STEPS.indexOf(detailOrder.status as OrderStatus);
                     const active = i <= stepIndex;
                     return (
-                      <div key={step} className="flex items-center gap-2 flex-1">
-                        <div className={cn("flex-1 flex flex-col items-center gap-1")}>
+                      <div key={step} className="flex items-center gap-1 flex-1">
+                        <div className="flex flex-col items-center gap-1 flex-1">
                           <div className={cn("size-7 rounded-full grid place-items-center text-xs font-black", active ? "bg-[#056abf] text-white" : "bg-slate-100 text-slate-400")}>
                             {i + 1}
                           </div>
-                          <p className={cn("text-xs font-semibold", active ? "text-[#056abf]" : "text-slate-400")}>{step}</p>
+                          <p className={cn("text-[10px] font-semibold text-center", active ? "text-[#056abf]" : "text-slate-400")}>{step}</p>
                         </div>
                         {i < STEPS.length - 1 && (
-                          <div className={cn("h-0.5 flex-1 -mt-5 mx-1", active && i < stepIndex ? "bg-[#056abf]" : "bg-slate-200")} />
+                          <div className={cn("h-0.5 flex-1 -mt-4 mx-1", active && i < stepIndex ? "bg-[#056abf]" : "bg-slate-200")} />
                         )}
                       </div>
                     );
@@ -335,16 +355,16 @@ export default function OrdersPage() {
               >
                 Close
               </button>
-              {detailOrder.status !== "Cancelled" && detailOrder.status !== "Picked Up" && (
+              {actionLabel(detailOrder.firestoreStatus) && (
                 <button
                   onClick={() => {
-                    pendingCompleteId.current = detailOrder.firestoreId;
-                    setCompleteOpen(true);
+                    pendingActionId.current = detailOrder.firestoreId;
+                    setConfirmOpen(true);
                     setDetailOrder(null);
                   }}
-                  className="flex-1 h-10 rounded-lg bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors"
+                  className="flex-1 h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
                 >
-                  Mark Complete
+                  {actionLabel(detailOrder.firestoreStatus)}
                 </button>
               )}
             </div>
@@ -352,24 +372,40 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Order Complete Modal */}
-      {completeOpen && (
+      {/* Action Confirm Modal */}
+      {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm text-center p-8">
-            <div className="size-16 rounded-full bg-green-50 grid place-items-center mx-auto mb-4">
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <div className="size-16 rounded-full bg-blue-50 grid place-items-center mx-auto mb-4">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#056abf" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
-            <h3 className="text-lg font-black text-slate-900 mb-2">Order Complete!</h3>
-            <p className="text-slate-500 text-sm mb-6">The order has been marked as picked up.</p>
-            <button
-              onClick={handleMarkComplete}
-              disabled={updating}
-              className="w-full h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
-            >
-              {updating ? "Saving…" : "Done"}
-            </button>
+            <h3 className="text-lg font-black text-slate-900 mb-2">Confirm Update</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              {(() => {
+                const order = orders.find((o) => o.firestoreId === pendingActionId.current);
+                const lbl = order ? actionLabel(order.firestoreStatus) : null;
+                return lbl === "Start Preparing"
+                  ? "Mark this order as being prepared."
+                  : "Mark this order as ready for pickup.";
+              })()}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setConfirmOpen(false); pendingActionId.current = null; }}
+                className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAction}
+                disabled={updating}
+                className="flex-1 h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60"
+              >
+                {updating ? "Saving…" : "Confirm"}
+              </button>
+            </div>
           </div>
         </div>
       )}
