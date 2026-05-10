@@ -17,6 +17,10 @@ const openSans = Open_Sans({
 export const metadata: Metadata = {
   title: "SwiftRun for Business",
   description: "Manage your SwiftRun store, orders, products and team",
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({
