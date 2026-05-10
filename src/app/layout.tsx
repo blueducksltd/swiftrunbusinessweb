@@ -15,8 +15,8 @@ const openSans = Open_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "SwiftRun Business",
-  description: "Business dashboard for SwiftRun merchants",
+  title: "SwiftRun for Business",
+  description: "Manage your SwiftRun store, orders, products and team",
 };
 
 export default function RootLayout({
