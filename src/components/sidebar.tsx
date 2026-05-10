@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { signOut } from "firebase/auth";
 import { cn } from "@/lib/cn";
 import { auth } from "@/lib/firebase";
-import { clearSession } from "@/lib/session";
+import { clearSession, getShopId } from "@/lib/session";
+import { subscribeToProducts, type Product } from "@/lib/firestore";
 
 const navItems = [
   {
@@ -76,16 +77,28 @@ const navItems = [
   },
 ];
 
-const updates = [
-  { name: "Lard bread", detail: "Stock: 45 bags", color: "bg-amber-200" },
-  { name: "Whole milk 1L", detail: "Stock: 28 packs", color: "bg-blue-200" },
-  { name: "Chocolate cake", detail: "Stock: 12 boxes", color: "bg-pink-200" },
-];
+function stockColor(status: string) {
+  if (status === "Out of Stock") return "bg-red-200";
+  if (status === "Low Stock") return "bg-amber-200";
+  return "bg-green-200";
+}
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const [updates, setUpdates] = useState<Product[]>([]);
+
+  useEffect(() => {
+    const shopId = getShopId();
+    if (!shopId) return;
+    const unsub = subscribeToProducts(shopId, (products) => {
+      // Show products with lowest stock first, capped at 3
+      const sorted = [...products].sort((a, b) => a.stock - b.stock).slice(0, 3);
+      setUpdates(sorted);
+    });
+    return () => unsub();
+  }, []);
 
   return (
     <>
@@ -125,23 +138,26 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Latest Updates */}
+        {/* Latest Updates — real low-stock products */}
         <div className="px-3 pb-3 shrink-0">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
-            Latest Updates
+            Stock Alerts
           </p>
           <div className="space-y-0.5">
-            {updates.map((item) => (
-              <div
-                key={item.name}
+            {updates.length === 0 ? (
+              <p className="text-xs text-slate-300 px-1">No products yet</p>
+            ) : updates.map((p) => (
+              <Link
+                key={p.id}
+                href="/products"
                 className="flex items-center gap-2.5 rounded-lg p-2 hover:bg-slate-50 cursor-pointer"
               >
-                <div className={cn("size-8 rounded-md shrink-0", item.color)} />
+                <div className={cn("size-8 rounded-md shrink-0", stockColor(p.status ?? "Active"))} />
                 <div className="min-w-0">
-                  <p className="text-xs font-bold text-slate-800 truncate">{item.name}</p>
-                  <p className="text-xs text-slate-400">{item.detail}</p>
+                  <p className="text-xs font-bold text-slate-800 truncate">{p.name}</p>
+                  <p className="text-xs text-slate-400">Stock: {p.stock} {p.unit}</p>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>

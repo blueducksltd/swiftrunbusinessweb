@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { getShopId, getShopName, setSession } from "@/lib/session";
-import { subscribeToShop } from "@/lib/firestore";
+import { subscribeToShop, subscribeToProducts, subscribeToOrders, type Product, type ErrandOrder } from "@/lib/firestore";
 import { useNotifications, timeAgo, type AppNotification, type NotifType } from "@/hooks/use-notifications";
 
 // ── Icon helpers ───────────────────────────────────────────────────────────
@@ -58,26 +59,67 @@ function NotifRow({ n }: { n: AppNotification }) {
 // ── Main header ────────────────────────────────────────────────────────────
 
 export function MainHeader() {
+  const router = useRouter();
   const [notifOpen, setNotifOpen] = useState(false);
   const [shopName, setShopName] = useState("My Shop");
   const [shopEmail, setShopEmail] = useState("");
   const shopId = useRef(getShopId() ?? "");
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [allOrders, setAllOrders] = useState<ErrandOrder[]>([]);
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+
   const { notifications, unreadCount, markAllRead } = useNotifications(shopId.current, shopEmail);
+
+  // Subscribe to products + orders for search
+  useEffect(() => {
+    const id = shopId.current;
+    if (!id) return;
+    const unsubP = subscribeToProducts(id, setAllProducts);
+    const unsubO = subscribeToOrders(id, (orders) => setAllOrders(orders));
+    return () => { unsubP(); unsubO(); };
+  }, []);
 
   useEffect(() => {
     setShopName(getShopName());
     const id = shopId.current;
     if (!id) return;
-
     const unsub = subscribeToShop(id, (shop) => {
       if (!shop) return;
       if (shop.name) { setShopName(shop.name); setSession(id, shop.name); }
       if (shop.email) setShopEmail(shop.email);
     });
-
     return () => unsub();
   }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  const hits = useCallback(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length < 2) return { products: [], orders: [] };
+    return {
+      products: allProducts
+        .filter((p) => p.name.toLowerCase().includes(q))
+        .slice(0, 5),
+      orders: allOrders
+        .filter((o) => o.orderNumber?.toLowerCase().includes(q) || o.customerName?.toLowerCase().includes(q))
+        .slice(0, 5),
+    };
+  }, [searchQuery, allProducts, allOrders])();
+
+  const hasHits = hits.products.length > 0 || hits.orders.length > 0;
+  const showDropdown = searchOpen && searchQuery.trim().length >= 2;
 
   function openNotifications() {
     setNotifOpen(true);
@@ -87,16 +129,82 @@ export function MainHeader() {
   return (
     <>
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between gap-4">
-        {/* Search */}
-        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 h-9 w-full max-w-xs">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search anything"
-            className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1"
-          />
+        {/* Search — same layout as before, dropdown added below */}
+        <div ref={searchWrapRef} className="relative w-full max-w-xs">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 h-9 w-full max-w-xs">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search anything"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={(e) => e.key === "Escape" && setSearchOpen(false)}
+              className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1"
+            />
+          </div>
+
+          {/* Results dropdown */}
+          {showDropdown && (
+            <div className="absolute left-0 top-11 w-80 bg-white rounded-xl border border-slate-200 shadow-xl shadow-slate-200/60 z-50 overflow-hidden">
+              {!hasHits ? (
+                <p className="px-4 py-5 text-xs text-slate-400 text-center">No results for &ldquo;{searchQuery}&rdquo;</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {hits.products.length > 0 && (
+                    <div>
+                      <p className="px-4 pt-3 pb-1 text-[10px] font-black text-slate-400 uppercase tracking-wider">Products</p>
+                      {hits.products.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => { setSearchOpen(false); setSearchQuery(""); router.push("/products"); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                        >
+                          <div className="size-8 rounded-lg bg-slate-100 grid place-items-center shrink-0">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2">
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate">{p.name}</p>
+                            <p className="text-xs text-slate-400">Stock: {p.stock}</p>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.status === "Out of Stock" ? "bg-red-50 text-red-600" : p.status === "Low Stock" ? "bg-amber-50 text-amber-600" : "bg-green-50 text-green-600"}`}>
+                            {p.status}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {hits.orders.length > 0 && (
+                    <div>
+                      <p className="px-4 pt-3 pb-1 text-[10px] font-black text-slate-400 uppercase tracking-wider">Orders</p>
+                      {hits.orders.map((o) => (
+                        <button
+                          key={o.id}
+                          onClick={() => { setSearchOpen(false); setSearchQuery(""); router.push("/orders"); }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors"
+                        >
+                          <div className="size-8 rounded-lg bg-slate-100 grid place-items-center shrink-0">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2">
+                              <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800">{o.orderNumber || o.id.slice(0, 8).toUpperCase()}</p>
+                            <p className="text-xs text-slate-400 truncate">{o.customerName || "Customer"}</p>
+                          </div>
+                          <span className="text-[10px] text-slate-400 capitalize shrink-0">{o.status.replace("_", " ")}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right side */}
