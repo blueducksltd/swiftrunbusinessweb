@@ -19,8 +19,8 @@ export default function BusinessPage() {
     description: "",
     address: "",
     phone: "",
-    serviceCharge: "5",
-    deliveryFee: "500",
+    bannerUrl: "",
+    logoUrl: "",
   });
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
   const [saved, setSaved] = useState(false);
@@ -37,8 +37,8 @@ export default function BusinessPage() {
         description: shop.description ?? "",
         address: shop.address ?? "",
         phone: shop.phone ?? "",
-        serviceCharge: String(shop.serviceChargePct ?? 5),
-        deliveryFee: String(shop.deliveryFee ?? 500),
+        bannerUrl: shop.bannerUrl ?? "",
+        logoUrl: shop.logoUrl ?? "",
       });
       if (shop.openingHours && Object.keys(shop.openingHours).length > 0) {
         setHours((prev) => ({ ...prev, ...shop.openingHours }));
@@ -59,8 +59,6 @@ export default function BusinessPage() {
         description: form.description,
         address: form.address,
         phone: form.phone,
-        serviceChargePct: parseFloat(form.serviceCharge) || 0,
-        deliveryFee: parseFloat(form.deliveryFee) || 0,
         openingHours: hours,
       });
       setSaved(true);
@@ -114,19 +112,44 @@ export default function BusinessPage() {
       <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
         {/* Left column */}
         <div className="space-y-5">
-          {/* Banner */}
+          {/* Banner + Logo */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="h-36 bg-gradient-to-r from-slate-700 to-slate-900 relative flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-2xl font-black text-white">{form.name || "Your Store"}</p>
-                <p className="text-xs text-slate-300 mt-1">Store Banner</p>
+            <div className="relative">
+              {/* Banner */}
+              <div className="h-36 relative">
+                {form.bannerUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.bannerUrl} alt="Store banner" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-r from-slate-700 to-slate-900 flex items-center justify-center">
+                    <p className="text-xs text-slate-400 font-semibold">No banner image set</p>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/20" />
               </div>
-              <button
-                type="button"
-                className="absolute bottom-3 right-3 h-8 px-3 rounded-lg bg-white/20 text-white text-xs font-bold hover:bg-white/30 transition-colors backdrop-blur-sm"
-              >
-                Change Image
-              </button>
+
+              {/* Logo circle */}
+              <div className="absolute -bottom-8 left-5">
+                <div className="size-16 rounded-full border-4 border-white bg-white shadow-md overflow-hidden">
+                  {form.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={form.logoUrl} alt="Store logo" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Name below banner */}
+            <div className="pt-11 pb-4 px-5">
+              <p className="font-black text-slate-900">{form.name || "Your Store"}</p>
+              <p className="text-xs text-slate-400 mt-0.5">Banner and logo are set from the SwiftRun admin panel</p>
             </div>
           </div>
 
@@ -171,30 +194,6 @@ export default function BusinessPage() {
             </div>
           </div>
 
-          {/* Charges */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            <h2 className="font-black text-slate-900 text-sm">Charges &amp; Fees</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">Service Charge (%)</label>
-                <input
-                  type="number"
-                  value={form.serviceCharge}
-                  onChange={(e) => setForm((p) => ({ ...p, serviceCharge: e.target.value }))}
-                  className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1.5">Delivery Fee (₦)</label>
-                <input
-                  type="number"
-                  value={form.deliveryFee}
-                  onChange={(e) => setForm((p) => ({ ...p, deliveryFee: e.target.value }))}
-                  className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
-                />
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Right column — Opening Hours */}
