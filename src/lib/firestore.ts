@@ -8,7 +8,6 @@ import {
   deleteDoc,
   query,
   where,
-  orderBy,
   limit,
   onSnapshot,
   serverTimestamp,
@@ -256,10 +255,11 @@ export function subscribeToOrders(
   shopId: string,
   callback: (orders: ErrandOrder[], newOrderIds: string[]) => void
 ) {
+  // No orderBy — combining where + orderBy on different fields needs a composite
+  // index that may not exist. Sort newest-first client-side instead.
   const q = query(
     collection(db, "ErrandOrders"),
     where("shopId", "==", shopId),
-    orderBy("createdAt", "desc"),
     limit(100)
   );
 
@@ -267,7 +267,9 @@ export function subscribeToOrders(
   const knownIds = new Set<string>();
 
   return onSnapshot(q, (snap) => {
-    const orders = snapshotToOrders(snap);
+    const orders = snapshotToOrders(snap).sort(
+      (a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0)
+    );
     const newOrderIds: string[] = [];
 
     snap.docChanges().forEach((change) => {
