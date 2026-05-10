@@ -22,5 +22,12 @@ jobs:
             git pull origin main
             npm ci
             npm run build
-            pm2 restart swiftrun-business || pm2 start npm --name "swiftrun-business" -- start
+
+            # Update Nginx config
+            sudo cp nginx/business.swiftrunapp.com.conf /etc/nginx/sites-available/business.swiftrunapp.com
+            sudo ln -sf /etc/nginx/sites-available/business.swiftrunapp.com /etc/nginx/sites-enabled/business.swiftrunapp.com
+            sudo nginx -t && sudo systemctl reload nginx
+
+            # Restart app
+            pm2 restart swiftrun-business || pm2 start ecosystem.config.js
             pm2 save
