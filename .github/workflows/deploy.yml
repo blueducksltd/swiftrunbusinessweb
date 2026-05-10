@@ -1,0 +1,26 @@
+name: Deploy Business Web to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            set -e
+            cd /var/www/swiftrunbusinessweb
+            git pull origin main
+            npm ci
+            npm run build
+            pm2 restart swiftrun-business || pm2 start npm --name "swiftrun-business" -- start
+            pm2 save
