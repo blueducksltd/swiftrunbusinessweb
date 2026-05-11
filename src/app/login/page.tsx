@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -62,13 +63,9 @@ export default function LoginPage() {
     <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-6">
-            <div className="size-9 rounded-lg bg-[#056abf] grid place-items-center text-white font-black text-base">
-              S
-            </div>
-            <span className="text-xl font-black text-slate-900">
-              Swift<span className="text-[#056abf]">Run</span>
-            </span>
+          <div className="inline-flex items-center gap-2.5 mb-6">
+            <Image src="/swiftrun-icon.png" alt="SwiftRun" width={40} height={40} className="rounded-xl" />
+            <Image src="/swiftrun-wordmark.png" alt="SwiftRun" width={110} height={22} className="object-contain" />
           </div>
           <p className="text-slate-500 text-sm leading-relaxed">
             Provide your business account details to get started.

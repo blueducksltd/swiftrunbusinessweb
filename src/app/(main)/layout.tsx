@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -11,8 +11,8 @@ import { Sidebar } from "@/components/sidebar";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [ready, setReady] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -59,10 +59,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex min-h-dvh bg-slate-50">
-      <Sidebar />
+      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex flex-1 min-w-0 flex-col">
-        <MainHeader />
-        <main className="flex-1 p-6">{children}</main>
+        <MainHeader onMenuClick={() => setMobileOpen(true)} />
+        <main className="flex-1 p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );
