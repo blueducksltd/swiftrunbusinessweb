@@ -18,7 +18,8 @@ jobs:
           script: |
             set -e
             cd /var/www/swiftrunbusinessweb
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm ci
             npm run build
 
