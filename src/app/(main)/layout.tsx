@@ -22,7 +22,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       }
       if (!getShopId()) {
         try {
-          const q = query(collection(db, "Shops"), where("ownerEmail", "==", user.email));
+          const q = query(collection(db, "Shops"), where("ownerEmail", "==", (user.email ?? "").toLowerCase().trim()));
           const snap = await getDocs(q);
           if (snap.empty) {
             await auth.signOut();

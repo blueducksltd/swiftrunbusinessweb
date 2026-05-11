@@ -21,7 +21,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-      const q = query(collection(db, "Shops"), where("ownerEmail", "==", cred.user.email));
+      const q = query(collection(db, "Shops"), where("ownerEmail", "==", (cred.user.email ?? "").toLowerCase().trim()));
       const snap = await getDocs(q);
       if (snap.empty) {
         await auth.signOut();
