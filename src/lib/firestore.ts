@@ -22,6 +22,11 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 export type ProductStatus = "Active" | "Low Stock" | "Out of Stock";
 
+export interface ProductOption {
+  name: string;
+  price: number;
+}
+
 export interface Product {
   id: string;
   shopId: string;
@@ -37,6 +42,7 @@ export interface Product {
   isActive: boolean;
   stock: number;
   requiredProductIds: string[];
+  options: ProductOption[];
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
   status?: ProductStatus;
@@ -172,6 +178,7 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
       isActive: data.isActive ?? true,
       stock: data.stock ?? 0,
       requiredProductIds: data.requiredProductIds ?? [],
+      options: data.options ?? [],
       createdAt: data.createdAt ?? null,
       updatedAt: data.updatedAt ?? null,
       status: productStatus(data.stock ?? 0, data.isAvailable ?? true),

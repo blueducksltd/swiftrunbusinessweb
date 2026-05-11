@@ -226,7 +226,11 @@ export default function OrdersPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map((o) => (
-                  <tr key={o.firestoreId} className="hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={o.firestoreId}
+                    onClick={() => setDetailOrder(o)}
+                    className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
                     <td className="px-4 py-3">
                       <div className={cn("size-10 rounded-lg shrink-0", o.color)} />
                     </td>
@@ -241,14 +245,9 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-4 py-3 text-slate-500">{o.date}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDetailOrder(o)}
-                        className="text-slate-400 hover:text-[#056abf] transition-colors"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
-                      </button>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
                     </td>
                   </tr>
                 ))}
