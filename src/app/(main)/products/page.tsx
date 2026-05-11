@@ -532,6 +532,21 @@ export default function ProductsPage() {
                   <p className="text-sm text-slate-700 mt-1">{detailProduct.raw.categoryName}</p>
                 </div>
               )}
+              {detailProduct.raw.options && detailProduct.raw.options.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Add-ons</p>
+                  <div className="space-y-1.5">
+                    {detailProduct.raw.options.map((opt, i) => (
+                      <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                        <span className="text-sm text-slate-700">{opt.name}</span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {opt.price > 0 ? `₦${opt.price.toLocaleString("en-NG")}` : "Free"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status</p>
                 <span className={cn("inline-flex mt-1 px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[detailProduct.status])}>
