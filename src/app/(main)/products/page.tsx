@@ -243,11 +243,11 @@ export default function ProductsPage() {
                     onClick={() => setDetailProduct(p)}
                     className="hover:bg-slate-50 transition-colors cursor-pointer"
                   >
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2">
                       {p.raw.imageUrl ? (
-                        <img src={p.raw.imageUrl} alt={p.name} className="size-14 rounded-lg object-cover" />
+                        <img src={p.raw.imageUrl} alt={p.name} style={{width:72,height:72,minWidth:72,objectFit:"cover",borderRadius:10}} />
                       ) : (
-                        <div className={cn("size-14 rounded-lg shrink-0", p.color)} />
+                        <div className={cn("rounded-lg shrink-0", p.color)} style={{width:72,height:72,minWidth:72,borderRadius:10}} />
                       )}
                     </td>
                     <td className="px-4 py-2.5 font-semibold text-slate-800">{p.name}</td>
