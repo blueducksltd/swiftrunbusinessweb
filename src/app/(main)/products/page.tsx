@@ -11,6 +11,7 @@ import {
   deleteProduct,
   uploadProductImage,
   type Product,
+  type ProductOption,
   type ShopCategory,
 } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
@@ -75,6 +76,7 @@ export default function ProductsPage() {
   const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [saving, setSaving] = useState(false);
+  const [options, setOptions] = useState<Array<{ name: string; price: string }>>([]);
 
   useEffect(() => {
     const shopId = getShopId();
@@ -139,6 +141,7 @@ export default function ProductsPage() {
     setImagePreview("");
     setImageError("");
     setTab("detail");
+    setOptions([]);
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -148,6 +151,9 @@ export default function ProductsPage() {
     setSaving(true);
     try {
       const imageUrl = imageFile ? await uploadProductImage(shopId, imageFile) : "";
+      const cleanOptions: ProductOption[] = options
+        .filter((o) => o.name.trim())
+        .map((o) => ({ name: o.name.trim(), price: parseFloat(o.price) || 0 }));
       await addProduct(shopId, getShopName(), {
         categoryId: form.categoryId,
         categoryName: form.category,
@@ -160,6 +166,7 @@ export default function ProductsPage() {
         isActive: true,
         stock: parseInt(form.qty) || 0,
         requiredProductIds: [],
+        options: cleanOptions,
       });
       setAddOpen(false);
       resetAddForm();
@@ -291,7 +298,7 @@ export default function ProductsPage() {
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   )}
                 >
-                  {t === "detail" ? "Product Detail" : "Required Products"}
+                  {t === "detail" ? "Product Detail" : `Add-ons${options.length > 0 ? ` (${options.length})` : ""}`}
                 </button>
               ))}
             </div>
@@ -408,11 +415,54 @@ export default function ProductsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="py-8 text-center text-slate-400">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-3 opacity-40">
-                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                    </svg>
-                    <p className="text-sm font-semibold">No required products added yet.</p>
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500 leading-relaxed">
+                      Add up to 4 optional extras customers can choose when ordering this product — e.g. drinks, sides, sauces.
+                    </p>
+
+                    {options.map((opt, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={opt.name}
+                          onChange={(e) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, name: e.target.value } : o))}
+                          placeholder={`Option name (e.g. Coke)`}
+                          className="flex-1 h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                        />
+                        <div className="relative w-28 shrink-0">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">₦</span>
+                          <input
+                            type="number"
+                            value={opt.price}
+                            onChange={(e) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, price: e.target.value } : o))}
+                            placeholder="0"
+                            className="w-full h-10 rounded-lg border border-slate-200 pl-7 pr-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="size-10 shrink-0 rounded-lg border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors grid place-items-center"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+
+                    {options.length < 4 && (
+                      <button
+                        type="button"
+                        onClick={() => setOptions((prev) => [...prev, { name: "", price: "" }])}
+                        className="w-full h-10 rounded-lg border-2 border-dashed border-slate-200 text-sm font-bold text-slate-400 hover:border-[#056abf] hover:text-[#056abf] transition-colors flex items-center justify-center gap-2"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        Add option {options.length > 0 ? `(${4 - options.length} left)` : ""}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
