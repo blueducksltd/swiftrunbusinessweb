@@ -231,32 +231,31 @@ export default function ProductsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {displayed.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3">
+                  <tr
+                    key={p.id}
+                    onClick={() => setDetailProduct(p)}
+                    className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <td className="px-4 py-2.5">
                       {p.raw.imageUrl ? (
-                        <img src={p.raw.imageUrl} alt={p.name} className="size-10 rounded-lg object-cover" />
+                        <img src={p.raw.imageUrl} alt={p.name} className="size-14 rounded-lg object-cover" />
                       ) : (
-                        <div className={cn("size-10 rounded-lg shrink-0", p.color)} />
+                        <div className={cn("size-14 rounded-lg shrink-0", p.color)} />
                       )}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{p.name}</td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{p.price}</td>
-                    <td className="px-4 py-3 text-slate-600">{p.qty}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-2.5 font-semibold text-slate-800">{p.name}</td>
+                    <td className="px-4 py-2.5 font-bold text-slate-900">{p.price}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{p.qty}</td>
+                    <td className="px-4 py-2.5">
                       <span className={cn("inline-flex px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[p.status])}>
                         {p.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{p.date}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDetailProduct(p)}
-                        className="text-slate-400 hover:text-[#056abf] transition-colors"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="9 18 15 12 9 6" />
-                        </svg>
-                      </button>
+                    <td className="px-4 py-2.5 text-slate-500">{p.date}</td>
+                    <td className="px-4 py-2.5">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
                     </td>
                   </tr>
                 ))}
