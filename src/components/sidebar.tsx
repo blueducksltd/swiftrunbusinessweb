@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
@@ -83,7 +84,7 @@ function stockColor(status: string) {
   return "bg-green-200";
 }
 
-export function Sidebar() {
+function SidebarContent({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -93,7 +94,6 @@ export function Sidebar() {
     const shopId = getShopId();
     if (!shopId) return;
     const unsub = subscribeToProducts(shopId, (products) => {
-      // Show products with lowest stock first, capped at 3
       const sorted = [...products].sort((a, b) => a.stock - b.stock).slice(0, 3);
       setUpdates(sorted);
     });
@@ -102,84 +102,82 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="hidden lg:flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white min-h-dvh sticky top-0 self-start h-dvh overflow-y-auto">
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-slate-100 shrink-0">
-          <Link href="/products" className="flex items-center gap-2.5">
-            <div className="size-9 rounded-lg bg-[#056abf] grid place-items-center text-white font-black text-base shrink-0">
-              S
-            </div>
-            <div>
-              <p className="font-black text-slate-900 text-sm leading-none">SwiftRun</p>
-              <p className="text-xs text-slate-400 mt-0.5">Business</p>
-            </div>
-          </Link>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-3 py-5 space-y-0.5">
-          {navItems.map((item) => {
-            const active = pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 h-10 rounded-lg px-3 text-sm font-semibold transition-colors",
-                  active
-                    ? "bg-[#056abf] text-white"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                )}
-              >
-                {item.icon}
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* Latest Updates — real low-stock products */}
-        <div className="px-3 pb-3 shrink-0">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
-            Stock Alerts
-          </p>
-          <div className="space-y-0.5">
-            {updates.length === 0 ? (
-              <p className="text-xs text-slate-300 px-1">No products yet</p>
-            ) : updates.map((p) => (
-              <Link
-                key={p.id}
-                href="/products"
-                className="flex items-center gap-2.5 rounded-lg p-2 hover:bg-slate-50 cursor-pointer"
-              >
-                <div className={cn("size-8 rounded-md shrink-0", stockColor(p.status ?? "Active"))} />
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-slate-800 truncate">{p.name}</p>
-                  <p className="text-xs text-slate-400">Stock: {p.stock} {p.unit}</p>
-                </div>
-              </Link>
-            ))}
+      {/* Logo */}
+      <div className="px-5 py-5 border-b border-slate-100 shrink-0">
+        <Link href="/products" onClick={onClose} className="flex items-center gap-2.5">
+          <Image src="/swiftrun-icon.png" alt="SwiftRun" width={36} height={36} className="rounded-lg" />
+          <div>
+            <Image src="/swiftrun-wordmark.png" alt="SwiftRun" width={90} height={18} className="object-contain" />
+            <p className="text-xs text-slate-400 mt-0.5">Business</p>
           </div>
-        </div>
+        </Link>
+      </div>
 
-        {/* Logout */}
-        <div className="px-3 pb-5 pt-3 border-t border-slate-100 shrink-0">
-          <button
-            onClick={() => setLogoutOpen(true)}
-            className="flex items-center gap-3 h-10 w-full rounded-lg px-3 text-sm font-semibold text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-          >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            Logout
-          </button>
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-5 space-y-0.5">
+        {navItems.map((item) => {
+          const active = pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onClose}
+              className={cn(
+                "flex items-center gap-3 h-11 rounded-lg px-3 text-sm font-semibold transition-colors",
+                active
+                  ? "bg-[#056abf] text-white"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Stock Alerts */}
+      <div className="px-3 pb-3 shrink-0">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-1">
+          Stock Alerts
+        </p>
+        <div className="space-y-0.5">
+          {updates.length === 0 ? (
+            <p className="text-xs text-slate-300 px-1">No products yet</p>
+          ) : updates.map((p) => (
+            <Link
+              key={p.id}
+              href="/products"
+              onClick={onClose}
+              className="flex items-center gap-2.5 rounded-lg p-2 hover:bg-slate-50 cursor-pointer"
+            >
+              <div className={cn("size-8 rounded-md shrink-0", stockColor(p.status ?? "Active"))} />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 truncate">{p.name}</p>
+                <p className="text-xs text-slate-400">Stock: {p.stock} {p.unit}</p>
+              </div>
+            </Link>
+          ))}
         </div>
-      </aside>
+      </div>
+
+      {/* Logout */}
+      <div className="px-3 pb-5 pt-3 border-t border-slate-100 shrink-0">
+        <button
+          onClick={() => setLogoutOpen(true)}
+          className="flex items-center gap-3 h-11 w-full rounded-lg px-3 text-sm font-semibold text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          Logout
+        </button>
+      </div>
 
       {logoutOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-xs text-center">
             <div className="size-14 rounded-full bg-red-50 grid place-items-center mx-auto mb-4">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -211,6 +209,44 @@ export function Sidebar() {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose?: () => void }) {
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <aside className="hidden lg:flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white min-h-dvh sticky top-0 self-start h-dvh overflow-y-auto">
+        <SidebarContent />
+      </aside>
+
+      {/* Mobile drawer backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <aside
+        className={cn(
+          "fixed top-0 left-0 z-50 h-dvh w-72 bg-white flex flex-col border-r border-slate-200 overflow-y-auto transition-transform duration-300 ease-in-out lg:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 size-8 rounded-lg border border-slate-200 grid place-items-center text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+        <SidebarContent onClose={onClose} />
+      </aside>
     </>
   );
 }
