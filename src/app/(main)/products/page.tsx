@@ -49,12 +49,18 @@ function fmtDate(ts: unknown): string {
   return "—";
 }
 
-function toDisplay(p: Product): DisplayProduct {
+function formatMoney(amount: number, currency: string) {
+  const code = currency || "NGN";
+  return `${code} ${(amount ?? 0).toLocaleString("en-GB")}`;
+}
+
+function toDisplay(p: Product, currency: string): DisplayProduct {
   const status = p.status ?? "Active";
+  const code = p.currency || currency;
   return {
     id: p.id,
     name: p.name,
-    price: `₦${(p.price ?? 0).toLocaleString("en-NG")}`,
+    price: formatMoney(p.price ?? 0, code),
     qty: p.stock ?? 0,
     status,
     date: fmtDate(p.createdAt),
@@ -64,6 +70,7 @@ function toDisplay(p: Product): DisplayProduct {
 }
 
 export default function ProductsPage() {
+  const [rawProducts, setRawProducts] = useState<Product[]>([]);
   const [products, setProducts] = useState<DisplayProduct[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [tab, setTab] = useState<"detail" | "required">("detail");
@@ -77,21 +84,27 @@ export default function ProductsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const [options, setOptions] = useState<Array<{ name: string; price: string }>>([]);
+  const [shopCurrency, setShopCurrency] = useState("NGN");
 
   useEffect(() => {
     const shopId = getShopId();
     if (!shopId) return;
     const unsubProducts = subscribeToProducts(shopId, (raw) => {
-      setProducts(raw.map(toDisplay));
+      setRawProducts(raw);
     });
     const unsubShop = subscribeToShop(shopId, (shop) => {
       setShopTypeId(shop?.shopTypeId ?? "");
+      setShopCurrency((shop?.currencyCode || shop?.currency || "NGN").toUpperCase());
     });
     return () => {
       unsubProducts();
       unsubShop();
     };
   }, []);
+
+  useEffect(() => {
+    setProducts(rawProducts.map((p) => toDisplay(p, shopCurrency)));
+  }, [rawProducts, shopCurrency]);
 
   useEffect(() => {
     if (!shopTypeId) {
@@ -160,6 +173,7 @@ export default function ProductsPage() {
         name: form.title,
         description: form.description,
         price: parseFloat(form.price) || 0,
+        currency: shopCurrency,
         unit: form.unit || "unit",
         imageUrl,
         isAvailable: true,
@@ -330,7 +344,7 @@ export default function ProductsPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1.5">Price (₦)</label>
+                        <label className="block text-xs font-bold text-slate-600 mb-1.5">Price ({shopCurrency})</label>
                         <input
                           required
                           type="number"
@@ -430,13 +444,13 @@ export default function ProductsPage() {
                           className="flex-1 h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
                         />
                         <div className="relative w-28 shrink-0">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">₦</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">{shopCurrency}</span>
                           <input
                             type="number"
                             value={opt.price}
                             onChange={(e) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, price: e.target.value } : o))}
                             placeholder="0"
-                            className="w-full h-10 rounded-lg border border-slate-200 pl-7 pr-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                            className="w-full h-10 rounded-lg border border-slate-200 pl-12 pr-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
                           />
                         </div>
                         <button
@@ -540,7 +554,7 @@ export default function ProductsPage() {
                       <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
                         <span className="text-sm text-slate-700">{opt.name}</span>
                         <span className="text-sm font-bold text-slate-900">
-                          {opt.price > 0 ? `₦${opt.price.toLocaleString("en-NG")}` : "Free"}
+                          {opt.price > 0 ? formatMoney(opt.price, detailProduct.raw.currency || shopCurrency) : "Free"}
                         </span>
                       </div>
                     ))}
