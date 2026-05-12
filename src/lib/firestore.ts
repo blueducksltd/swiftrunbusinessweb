@@ -36,6 +36,7 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  currency?: string;
   unit: string;
   imageUrl: string;
   isAvailable: boolean;
@@ -110,6 +111,11 @@ export interface ShopProfile {
   address: string;
   latitude?: number;
   longitude?: number;
+  country?: string;
+  countryCode?: string;
+  isoCode?: string;
+  currency?: string;
+  currencyCode?: string;
   city: string;
   state: string;
   phone: string;
