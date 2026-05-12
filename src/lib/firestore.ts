@@ -108,6 +108,8 @@ export interface ShopProfile {
   shopTypeName: string;
   description: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   city: string;
   state: string;
   phone: string;
