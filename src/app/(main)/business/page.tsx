@@ -51,6 +51,7 @@ export default function BusinessPage() {
   const addressDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -83,6 +84,7 @@ export default function BusinessPage() {
     const shopId = getShopId();
     if (!shopId) return;
     setSaving(true);
+    setSaveError("");
     try {
       await updateShopProfile(shopId, {
         name: form.name,
@@ -95,6 +97,8 @@ export default function BusinessPage() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not save business profile");
     } finally {
       setSaving(false);
     }
@@ -204,6 +208,9 @@ export default function BusinessPage() {
               </svg>
               Saved!
             </span>
+          )}
+          {saveError && (
+            <span className="text-sm font-bold text-red-600">{saveError}</span>
           )}
           <button
             type="button"
