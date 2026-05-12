@@ -320,6 +320,15 @@ export function subscribeToShop(
 
 export async function updateShopProfile(shopId: string, data: Partial<ShopProfile>): Promise<void> {
   await updateDoc(doc(db, "Shops", shopId), { ...data, updatedAt: serverTimestamp() });
+  const syncRes = await fetch("/api/admin/shop-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shopId, ...data }),
+  });
+  if (!syncRes.ok) {
+    const error = await syncRes.json().catch(() => null);
+    throw new Error(error?.error || "Admin profile sync failed");
+  }
 }
 
 export function subscribeToShopCategories(
