@@ -63,6 +63,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [shopName, setShopName] = useState("My Shop");
   const [shopEmail, setShopEmail] = useState("");
+  const [shopCurrency, setShopCurrency] = useState<string | undefined>(undefined);
   const shopId = useRef(getShopId() ?? "");
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -71,7 +72,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [allOrders, setAllOrders] = useState<ErrandOrder[]>([]);
   const searchWrapRef = useRef<HTMLDivElement>(null);
 
-  const { notifications, unreadCount, markAllRead } = useNotifications(shopId.current, shopEmail);
+  const { notifications, unreadCount, markAllRead } = useNotifications(shopId.current, shopEmail, shopCurrency);
 
   // Subscribe to products + orders for search
   useEffect(() => {
@@ -90,6 +91,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
       if (!shop) return;
       if (shop.name) { setShopName(shop.name); setSession(id, shop.name); }
       if (shop.email) setShopEmail(shop.email);
+      setShopCurrency(shop.currency || shop.currencyCode || undefined);
     });
     return () => unsub();
   }, []);

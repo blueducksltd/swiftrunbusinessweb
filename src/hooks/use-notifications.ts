@@ -10,6 +10,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { fmtCurrency } from "@/lib/currency";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ function persistReadIds(ids: Set<string>) {
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
-export function useNotifications(shopId: string, shopEmail: string) {
+export function useNotifications(shopId: string, shopEmail: string, shopCurrency?: string) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const ordersReady = useRef(false);
@@ -97,7 +98,7 @@ export function useNotifications(shopId: string, shopEmail: string) {
         const d = change.doc.data();
         const id = change.doc.id;
         const num = d.orderNumber ?? id.slice(0, 6).toUpperCase();
-        const amt = `₦${(d.total ?? 0).toLocaleString()}`;
+        const amt = fmtCurrency(d.total ?? 0, shopCurrency);
 
         if (change.type === "added") {
           push({ id: `new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} — ${amt}`, ts: Date.now() });

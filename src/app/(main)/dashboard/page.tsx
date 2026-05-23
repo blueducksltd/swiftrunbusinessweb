@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
+import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
 import { getOrderStats, subscribeToOrders, subscribeToShop } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
 
@@ -26,15 +27,8 @@ function timeAgo(ts: unknown): string {
   return "—";
 }
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  NGN: "₦", GBP: "£", USD: "$", EUR: "€", GHS: "GH₵", KES: "KSh", ZAR: "R",
-};
-
-function fmt(n: number, currency: string = "NGN"): string {
-  const sym = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency.toUpperCase()} `;
-  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `${sym}${(n / 1000).toFixed(0)}k`;
-  return `${sym}${n.toLocaleString()}`;
+function fmt(n: number, currency?: string): string {
+  return fmtCurrencyCompact(n, currency);
 }
 
 export default function DashboardPage() {

@@ -4,10 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/cn";
 import { subscribeToOrders, subscribeToShop, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  NGN: "₦", GBP: "£", USD: "$", EUR: "€", GHS: "GH₵", KES: "KSh", ZAR: "R",
-};
+import { fmtCurrency } from "@/lib/currency";
 
 type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
 
@@ -85,9 +82,8 @@ function actionLabel(current: ErrandStatus): string | null {
   return null;
 }
 
-function fmt(n: number, currency: string = "NGN"): string {
-  const sym = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency.toUpperCase()} `;
-  return `${sym}${n.toLocaleString()}`;
+function fmt(n: number, currency?: string): string {
+  return fmtCurrency(n, currency);
 }
 
 function fmtDate(ts: unknown): string {

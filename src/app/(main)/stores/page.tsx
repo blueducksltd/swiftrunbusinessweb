@@ -2,25 +2,14 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/cn";
+import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
 import { subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
-
-// ── helpers ────────────────────────────────────────────────────────────────
-
-function fmt(n: number) {
-  if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}m`;
-  if (n >= 1_000) return `₦${(n / 1_000).toFixed(1)}k`;
-  return `₦${n.toLocaleString("en-NG")}`;
-}
-
-function fmtFull(n: number) {
-  return `₦${n.toLocaleString("en-NG")}`;
-}
 
 function fmtTime(ts: unknown): string {
   if (!ts || typeof ts !== "object" || !("seconds" in ts)) return "—";
   const d = new Date((ts as { seconds: number }).seconds * 1000);
-  return d.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
 function fmtDate(ts: unknown): string {
@@ -77,6 +66,7 @@ export default function SalesPage() {
   const [orders, setOrders] = useState<ErrandOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [commissionPct, setCommissionPct] = useState(0);
+  const [shopCurrency, setShopCurrency] = useState<string | undefined>(undefined);
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
@@ -89,6 +79,7 @@ export default function SalesPage() {
     });
     const unsubShop = subscribeToShop(shopId, (shop) => {
       setCommissionPct(shop?.serviceChargePct ?? 0);
+      setShopCurrency(shop?.currency || shop?.currencyCode || undefined);
     });
     return () => { unsubOrders(); unsubShop(); };
   }, []);
@@ -209,10 +200,10 @@ export default function SalesPage() {
         <p className="text-sm font-bold text-slate-700 mb-3">Revenue Breakdown</p>
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {[
-            { label: "Gross Sales",         value: fmt(grossSales) },
-            { label: "Platform Commission", value: commissionPct > 0 ? fmt(commission) : "—" },
-            { label: "Net Earnings",        value: commissionPct > 0 ? fmt(netEarnings) : fmt(grossSales) },
-            { label: "Withdrawn Amount",    value: "₦0" },
+            { label: "Gross Sales",         value: fmtCurrencyCompact(grossSales, shopCurrency) },
+            { label: "Platform Commission", value: commissionPct > 0 ? fmtCurrencyCompact(commission, shopCurrency) : "—" },
+            { label: "Net Earnings",        value: commissionPct > 0 ? fmtCurrencyCompact(netEarnings, shopCurrency) : fmtCurrencyCompact(grossSales, shopCurrency) },
+            { label: "Withdrawn Amount",    value: fmtCurrency(0, shopCurrency) },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-5">
               <p className="text-xs font-semibold text-slate-400 mb-2">{s.label}</p>
@@ -271,7 +262,7 @@ export default function SalesPage() {
                     </td>
                     <td className="px-5 py-3 font-mono text-xs text-slate-500">{row.orderNumber}</td>
                     <td className="px-5 py-3 text-slate-600">{row.qty}</td>
-                    <td className="px-5 py-3 font-bold text-slate-900">{fmtFull(row.amount)}</td>
+                    <td className="px-5 py-3 font-bold text-slate-900">{fmtCurrency(row.amount, shopCurrency)}</td>
                     <td className="px-5 py-3 text-slate-500 tabular-nums">{fmtTime(row.createdAt)}</td>
                   </tr>
                 ))}

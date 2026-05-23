@@ -15,6 +15,7 @@ import {
   type ShopCategory,
 } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
+import { fmtCurrency } from "@/lib/currency";
 
 type DisplayProduct = {
   id: string;
@@ -50,8 +51,7 @@ function fmtDate(ts: unknown): string {
 }
 
 function formatMoney(amount: number, currency: string) {
-  const code = currency || "NGN";
-  return `${code} ${(amount ?? 0).toLocaleString("en-GB")}`;
+  return fmtCurrency(amount ?? 0, currency || undefined);
 }
 
 function toDisplay(p: Product, currency: string): DisplayProduct {
@@ -159,6 +159,11 @@ export default function ProductsPage() {
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
+    if (!imageFile) {
+      setImageError("Product image is required.");
+      setTab("detail");
+      return;
+    }
     const shopId = getShopId();
     if (!shopId) return;
     setSaving(true);
@@ -335,6 +340,7 @@ export default function ProductsPage() {
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1.5">Description</label>
                       <textarea
+                        required
                         value={form.description}
                         onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
                         placeholder="Describe the product..."
@@ -367,8 +373,8 @@ export default function ProductsPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1.5">Product Image</label>
-                      <label className="flex min-h-28 cursor-pointer items-center gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 transition-colors hover:border-[#056abf] hover:bg-blue-50/40">
+                      <label className="block text-xs font-bold text-slate-600 mb-1.5">Product Image <span className="text-red-500">*</span></label>
+                      <label className={`flex min-h-28 cursor-pointer items-center gap-4 rounded-xl border border-dashed p-3 transition-colors hover:border-[#056abf] hover:bg-blue-50/40 ${imageError ? "border-red-400 bg-red-50/40" : "border-slate-300 bg-slate-50/70"}`}>
                         {imagePreview ? (
                           <img src={imagePreview} alt="Product preview" className="size-20 rounded-lg object-cover" />
                         ) : (
@@ -419,6 +425,7 @@ export default function ProductsPage() {
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1.5">Unit</label>
                         <input
+                          required
                           type="text"
                           value={form.unit}
                           onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
