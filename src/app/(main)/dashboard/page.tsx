@@ -3,14 +3,14 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
-import { getOrderStats, subscribeToOrders } from "@/lib/firestore";
+import { getOrderStats, subscribeToOrders, subscribeToShop } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
 
 type LiveOrder = {
   id: string;
   customer: string;
   items: string;
-  amount: string;
+  totalRaw: number;
   status: string;
   time: string;
 };
@@ -26,22 +26,33 @@ function timeAgo(ts: unknown): string {
   return "—";
 }
 
-function fmt(n: number) {
-  if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1000) return `₦${(n / 1000).toFixed(0)}k`;
-  return `₦${n.toLocaleString("en-NG")}`;
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  NGN: "₦", GBP: "£", USD: "$", EUR: "€", GHS: "GH₵", KES: "KSh", ZAR: "R",
+};
+
+function fmt(n: number, currency: string = "NGN"): string {
+  const sym = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency.toUpperCase()} `;
+  if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${sym}${(n / 1000).toFixed(0)}k`;
+  return `${sym}${n.toLocaleString()}`;
 }
 
 export default function DashboardPage() {
   const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, cancelled: 0, totalRevenue: 0, avgOrder: 0 });
   const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
+  const [shopTypeName, setShopTypeName] = useState("");
+  const [shopCurrency, setShopCurrency] = useState("NGN");
   const shopName = getShopName();
 
   useEffect(() => {
     const shopId = getShopId();
     if (!shopId) return;
     getOrderStats(shopId).then(setStats).catch(() => {});
-    const unsub = subscribeToOrders(shopId, (orders) => {
+    const unsubShop = subscribeToShop(shopId, (shop) => {
+      setShopTypeName(shop?.shopTypeName ?? "");
+      setShopCurrency(shop?.currency ?? "NGN");
+    });
+    const unsubOrders = subscribeToOrders(shopId, (orders) => {
       const live = orders
         .filter((o) => ["pending", "accepted", "driver_at_shop", "preparing", "ready"].includes(o.status))
         .slice(0, 5)
@@ -49,19 +60,22 @@ export default function DashboardPage() {
           id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
           customer: o.customerName || "Customer",
           items: o.items.map((i) => i.name).join(", ") || "—",
-          amount: `₦${(o.total ?? 0).toLocaleString("en-NG")}`,
+          totalRaw: o.total ?? 0,
           status: o.status === "ready" ? "Ready" : o.status === "picked_up" ? "Picked up" : "Preparing",
           time: timeAgo(o.createdAt),
         }));
       setLiveOrders(live);
     });
-    return () => unsub();
+    return () => {
+      unsubShop();
+      unsubOrders();
+    };
   }, []);
 
   const statCards = [
     { label: "Total orders", value: String(stats.total), delta: `${stats.pending} active` },
-    { label: "Revenue", value: fmt(stats.totalRevenue), delta: `${stats.completed} completed` },
-    { label: "Avg order", value: fmt(stats.avgOrder), delta: `${stats.cancelled} cancelled` },
+    { label: "Revenue", value: fmt(stats.totalRevenue, shopCurrency), delta: `${stats.completed} completed` },
+    { label: "Avg order", value: fmt(stats.avgOrder, shopCurrency), delta: `${stats.cancelled} cancelled` },
     { label: "Pending", value: String(stats.pending), delta: "active now" },
   ];
 
@@ -71,6 +85,9 @@ export default function DashboardPage() {
         <div>
           <p className="text-sm font-semibold text-[#056abf]">{shopName}</p>
           <h1 className="text-2xl font-black text-slate-900">Business dashboard</h1>
+          {shopTypeName && (
+            <p className="mt-1 text-sm font-semibold text-slate-500">Shop type: {shopTypeName}</p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">
@@ -105,7 +122,7 @@ export default function DashboardPage() {
                 <div className="py-8 text-center text-slate-400 text-sm">No active orders right now.</div>
               ) : (
                 liveOrders.map((order) => (
-                  <OrderRow key={order.id} {...order} />
+                  <OrderRow key={order.id} {...order} currency={shopCurrency} />
                 ))
               )}
             </div>
@@ -113,7 +130,7 @@ export default function DashboardPage() {
 
           <div className="rounded-xl border border-slate-200 bg-[#071a2f] p-5 text-white">
             <p className="text-sm font-semibold text-blue-200">Total revenue</p>
-            <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue)}</p>
+            <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue, shopCurrency)}</p>
             <div className="mt-6 flex h-40 items-end gap-2">
               {[44, 70, 58, 90, 64, 112, 84, 130, 102, 148, 118, 160].map((height, index) => (
                 <div key={index} className="flex-1 rounded-t bg-blue-400" style={{ height }} />
@@ -194,8 +211,8 @@ function StatCard({ label, value, delta }: { label: string; value: string; delta
   );
 }
 
-function OrderRow({ id, customer, items, amount, status, time }: {
-  id: string; customer: string; items: string; amount: string; status: string; time: string;
+function OrderRow({ id, customer, items, totalRaw, currency, status, time }: {
+  id: string; customer: string; items: string; totalRaw: number; currency: string; status: string; time: string;
 }) {
   const statusColor = status === "Ready" ? "bg-green-50 text-green-700" : status === "Picked up" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700";
   return (
@@ -203,7 +220,7 @@ function OrderRow({ id, customer, items, amount, status, time }: {
       <p className="font-black text-slate-900">{id}</p>
       <p className="font-semibold">{customer}</p>
       <p className="text-sm text-slate-500 truncate">{items}</p>
-      <p className="font-black">{amount}</p>
+      <p className="font-black">{fmt(totalRaw, currency)}</p>
       <div className="flex items-center justify-between gap-3 md:block">
         <span className={cn("rounded-full px-2.5 py-1 text-xs font-black", statusColor)}>{status}</span>
         <p className="mt-1 text-xs text-slate-400">{time}</p>

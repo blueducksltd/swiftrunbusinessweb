@@ -2,8 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/cn";
-import { subscribeToOrders, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
+import { subscribeToOrders, subscribeToShop, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  NGN: "₦", GBP: "£", USD: "$", EUR: "€", GHS: "GH₵", KES: "KSh", ZAR: "R",
+};
 
 type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
 
@@ -14,7 +18,7 @@ type DisplayOrder = {
   product: string;
   customer: string;
   qty: number;
-  price: string;
+  totalRaw: number;
   status: OrderStatus;
   date: string;
   color: string;
@@ -81,8 +85,9 @@ function actionLabel(current: ErrandStatus): string | null {
   return null;
 }
 
-function fmt(n: number) {
-  return `₦${n.toLocaleString("en-NG")}`;
+function fmt(n: number, currency: string = "NGN"): string {
+  const sym = CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency.toUpperCase()} `;
+  return `${sym}${n.toLocaleString()}`;
 }
 
 function fmtDate(ts: unknown): string {
@@ -104,7 +109,7 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     product: o.items.map((i) => i.name).join(", ") || "—",
     customer: o.customerName || "Unknown",
     qty: o.items.reduce((s, i) => s + (i.qty ?? 1), 0),
-    price: fmt(o.total ?? 0),
+    totalRaw: o.total ?? 0,
     status,
     date: fmtDate(o.createdAt),
     color: STATUS_COLORS[status],
@@ -121,6 +126,7 @@ export default function OrdersPage() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [shopCurrency, setShopCurrency] = useState("NGN");
   const pendingActionId = useRef<string | null>(null);
 
   const playSound = useCallback(() => {
@@ -141,11 +147,14 @@ export default function OrdersPage() {
   useEffect(() => {
     const shopId = getShopId();
     if (!shopId) return;
+    const unsubShop = subscribeToShop(shopId, (shop) => {
+      setShopCurrency(shop?.currency ?? "NGN");
+    });
     const unsub = subscribeToOrders(shopId, (raw, newIds) => {
       setOrders(raw.map(toDisplay));
       if (newIds.length > 0) playSound();
     });
-    return () => unsub();
+    return () => { unsubShop(); unsub(); };
   }, [playSound]);
 
   const filtered = activeTab === "All" ? orders : orders.filter((o) => o.status === activeTab);
@@ -237,7 +246,7 @@ export default function OrdersPage() {
                     <td className="px-4 py-3 font-black text-slate-900 text-xs">{o.id}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800 max-w-[200px] truncate">{o.product}</td>
                     <td className="px-4 py-3 text-slate-600">{o.qty}</td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{o.price}</td>
+                    <td className="px-4 py-3 font-bold text-slate-900">{fmt(o.totalRaw, shopCurrency)}</td>
                     <td className="px-4 py-3">
                       <span className={cn("inline-flex px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[o.status])}>
                         {o.status}
@@ -335,7 +344,7 @@ export default function OrdersPage() {
                   {detailOrder.items.map((item, i) => (
                     <div key={i} className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-700">{item.name}</span>
-                      <span className="text-slate-500">×{item.qty} — {fmt(item.total)}</span>
+                      <span className="text-slate-500">×{item.qty} — {fmt(item.total, shopCurrency)}</span>
                     </div>
                   ))}
                 </div>
@@ -343,7 +352,7 @@ export default function OrdersPage() {
 
               <div className="flex items-center justify-between py-3 border-t border-slate-100">
                 <p className="text-sm text-slate-500">Total</p>
-                <p className="font-black text-slate-900">{detailOrder.price}</p>
+                <p className="font-black text-slate-900">{fmt(detailOrder.totalRaw, shopCurrency)}</p>
               </div>
             </div>
 
