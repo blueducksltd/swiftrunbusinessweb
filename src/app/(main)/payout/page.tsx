@@ -39,6 +39,13 @@ type PayoutAccount = {
   routingNumber?: string;
 };
 
+type PayoutFinanceConfig = {
+  country: string;
+  currency: string;
+  businessMinimumPayout: string;
+  businessAutoPayoutEnabled: boolean;
+};
+
 type Bank = { name: string; code: string };
 
 // ── Page ──────────────────────────────────────────────────────────────────
@@ -48,6 +55,7 @@ export default function PayoutPage() {
   const [history, setHistory] = useState<PayoutRecord[]>([]);
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const [shopCountry, setShopCountry] = useState("NG");
+  const [financeConfig, setFinanceConfig] = useState<PayoutFinanceConfig | null>(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -70,6 +78,7 @@ export default function PayoutPage() {
     ])
       .then(([accountData, historyData]) => {
         setAccount(accountData.account ?? null);
+        setFinanceConfig(accountData.financeConfig ?? null);
         setHistory(historyData.payouts ?? []);
         setLoading(false);
       })
@@ -122,10 +131,34 @@ export default function PayoutPage() {
           />
         ) : null}
 
+        {financeConfig ? <PayoutRulesCard config={financeConfig} /> : null}
+
         {/* Payout history */}
         <PayoutHistory records={history} />
       </div>
     </>
+  );
+}
+
+function PayoutRulesCard({ config }: { config: PayoutFinanceConfig }) {
+  return (
+    <div className="max-w-xl rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">Payout rules</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <p className="text-xs text-slate-400">Minimum requestable payout</p>
+          <p className="text-lg font-black text-slate-900">
+            {fmtCurrency(Number(config.businessMinimumPayout || 0), config.currency)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-400">Automatic payouts</p>
+          <p className={cn("text-lg font-black", config.businessAutoPayoutEnabled ? "text-green-700" : "text-slate-500")}>
+            {config.businessAutoPayoutEnabled ? "Enabled" : "Disabled"}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
