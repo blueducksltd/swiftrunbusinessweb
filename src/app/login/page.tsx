@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, collectionGroup, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { setSession } from "@/lib/session";
 
@@ -21,16 +21,31 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
-      const q = query(collection(db, "Shops"), where("ownerEmail", "==", (cred.user.email ?? "").toLowerCase().trim()));
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        await auth.signOut();
-        setError("No shop found for this account. Contact admin to register your shop.");
+      const email = (cred.user.email ?? "").toLowerCase().trim();
+
+      // Check if owner
+      const ownerSnap = await getDocs(query(collection(db, "Shops"), where("ownerEmail", "==", email)));
+      if (!ownerSnap.empty) {
+        const shopDoc = ownerSnap.docs[0];
+        setSession(shopDoc.id, shopDoc.data().name ?? "");
+        router.push("/dashboard");
         return;
       }
-      const shopDoc = snap.docs[0];
-      setSession(shopDoc.id, shopDoc.data().name ?? "");
-      router.push("/dashboard");
+
+      // Check if staff member across all shops
+      const memberSnap = await getDocs(query(collectionGroup(db, "members"), where("email", "==", email)));
+      if (!memberSnap.empty) {
+        const memberDoc = memberSnap.docs[0];
+        const shopId = memberDoc.ref.parent.parent?.id ?? "";
+        const shopDoc = shopId ? await getDocs(query(collection(db, "Shops"), where("__name__", "==", shopId))) : null;
+        const shopName = shopDoc?.docs[0]?.data().name ?? "My Shop";
+        setSession(shopId, shopName);
+        router.push("/dashboard");
+        return;
+      }
+
+      await auth.signOut();
+      setError("No shop found for this account. Contact admin to register your shop.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("invalid-credential") || msg.includes("wrong-password") || msg.includes("user-not-found")) {
