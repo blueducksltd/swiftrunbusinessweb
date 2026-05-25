@@ -18,6 +18,7 @@ export type NotifType =
   | "order_new"
   | "order_delivered"
   | "order_cancelled"
+  | "order_driver_arrived"
   | "stock_low"
   | "stock_out";
 
@@ -107,6 +108,8 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
             push({ id: `done_${id}`, type: "order_delivered", title: "Order Completed", subtitle: `#${num} — ${amt}`, ts: Date.now() });
           } else if (d.status === "cancelled") {
             push({ id: `cancel_${id}`, type: "order_cancelled", title: "Order Cancelled", subtitle: `#${num} — ${amt}`, ts: Date.now() });
+          } else if (d.status === "driver_at_shop") {
+            push({ id: `arrived_${id}`, type: "order_driver_arrived", title: "Driver Arrived", subtitle: `Driver is at your store for order #${num}`, ts: Date.now() });
           }
         }
       });
