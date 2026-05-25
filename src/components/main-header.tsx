@@ -102,7 +102,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
     if (!id) return;
     const unsub = subscribeToShop(id, (shop) => {
       if (!shop) return;
-      if (shop.name) { setShopName(shop.name); setSession(id, shop.name); }
+      if (shop.name) { setShopName(shop.name); setSession(id, shop.name, getRole()); }
       if (shop.email) setShopEmail(shop.email);
       setShopCurrency(shop.currency || shop.currencyCode || undefined);
     });
