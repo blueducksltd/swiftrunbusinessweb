@@ -17,7 +17,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [shopId, setShopId] = useState<string | null>(null);
 
-  const OWNER_ONLY = ["/members", "/payout", "/stores"];
+  const OWNER_ONLY = ["/members", "/payout", "/stores", "/business"];
 
   useFcmToken(shopId);
 
