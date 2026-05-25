@@ -13,13 +13,11 @@ import {
 } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
 
-type Role = "Admin" | "Manager" | "Staff" | "Cashier";
+type Role = "Manager" | "Staff";
 
 const ROLE_STYLES: Record<Role, string> = {
-  Admin: "bg-purple-50 text-purple-700",
   Manager: "bg-blue-50 text-[#056abf]",
   Staff: "bg-green-50 text-green-700",
-  Cashier: "bg-amber-50 text-amber-700",
 };
 
 const AVATAR_COLORS = [
@@ -31,7 +29,7 @@ const AVATAR_COLORS = [
   "bg-cyan-200 text-cyan-800",
 ];
 
-const ROLES: Role[] = ["Admin", "Manager", "Staff", "Cashier"];
+const ROLES: Role[] = ["Manager", "Staff"];
 
 function initials(m: ShopMember) {
   return `${m.firstName?.[0] ?? ""}${m.lastName?.[0] ?? ""}`.toUpperCase() || "?";
@@ -265,7 +263,7 @@ export default function MembersPage() {
                         </button>
 
                         {rolePickerFor === emp.id && (
-                          <div className="absolute left-0 top-8 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-32">
+                          <div className="absolute left-0 bottom-full mb-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-32">
                             {ROLES.map((role) => (
                               <button
                                 key={role}
