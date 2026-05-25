@@ -384,6 +384,20 @@ export async function updateMemberRole(shopId: string, memberId: string, role: s
   await updateDoc(doc(db, "Shops", shopId, "members", memberId), { role });
 }
 
+export async function updateMember(
+  shopId: string,
+  memberId: string,
+  data: Partial<Pick<ShopMember, "firstName" | "lastName" | "email" | "role">>
+): Promise<void> {
+  await updateDoc(doc(db, "Shops", shopId, "members", memberId), data);
+}
+
+export async function resendMemberInvitation(shopId: string, memberId: string): Promise<void> {
+  await updateDoc(doc(db, "Shops", shopId, "members", memberId), {
+    invitedAt: serverTimestamp(),
+  });
+}
+
 export async function removeMember(shopId: string, memberId: string): Promise<void> {
   await deleteDoc(doc(db, "Shops", shopId, "members", memberId));
 }

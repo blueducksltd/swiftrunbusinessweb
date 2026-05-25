@@ -5,7 +5,9 @@ import { cn } from "@/lib/cn";
 import {
   subscribeToMembers,
   addMember,
+  updateMember,
   updateMemberRole,
+  resendMemberInvitation,
   removeMember,
   type ShopMember,
 } from "@/lib/firestore";
@@ -48,6 +50,12 @@ export default function MembersPage() {
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "" as Role | "" });
   const [saving, setSaving] = useState(false);
 
+  // Edit state
+  const [editMember, setEditMember] = useState<ShopMember | null>(null);
+  const [editForm, setEditForm] = useState({ firstName: "", lastName: "", email: "", role: "" as Role | "" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
+
   useEffect(() => {
     const shopId = getShopId();
     if (!shopId) return;
@@ -88,6 +96,42 @@ export default function MembersPage() {
     if (!shopId) return;
     if (!confirm("Remove this team member?")) return;
     await removeMember(shopId, memberId);
+  }
+
+  function openEdit(emp: ShopMember) {
+    setEditForm({ firstName: emp.firstName, lastName: emp.lastName, email: emp.email, role: emp.role as Role });
+    setEditMember(emp);
+  }
+
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editMember) return;
+    const shopId = getShopId();
+    if (!shopId) return;
+    setEditSaving(true);
+    try {
+      await updateMember(shopId, editMember.id, {
+        firstName: editForm.firstName,
+        lastName: editForm.lastName,
+        email: editForm.email,
+        role: editForm.role || "Staff",
+      });
+      setEditMember(null);
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleResend(emp: ShopMember) {
+    const shopId = getShopId();
+    if (!shopId) return;
+    setResending(emp.id);
+    try {
+      await resendMemberInvitation(shopId, emp.id);
+      alert(`Invitation resent to ${emp.email}`);
+    } finally {
+      setResending(null);
+    }
   }
 
   return (
@@ -167,17 +211,41 @@ export default function MembersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        className="text-slate-400 hover:text-red-500 transition-colors"
-                        onClick={() => handleDelete(emp.id)}
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                          <path d="M10 11v6" /><path d="M14 11v6" />
-                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          title="Edit"
+                          onClick={() => openEdit(emp)}
+                          className="text-slate-400 hover:text-[#056abf] transition-colors"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
+                        <button
+                          title="Resend invitation"
+                          onClick={() => handleResend(emp)}
+                          disabled={resending === emp.id}
+                          className="text-slate-400 hover:text-amber-500 transition-colors disabled:opacity-40"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                            <polyline points="22,6 12,13 2,6" />
+                          </svg>
+                        </button>
+                        <button
+                          title="Remove"
+                          onClick={() => handleDelete(emp.id)}
+                          className="text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6" /><path d="M14 11v6" />
+                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -190,6 +258,84 @@ export default function MembersPage() {
       {/* Backdrop for role picker */}
       {rolePickerFor !== null && (
         <div className="fixed inset-0 z-10" onClick={() => setRolePickerFor(null)} />
+      )}
+
+      {/* Edit Employee Modal */}
+      {editMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="font-black text-slate-900">Edit Employee</h2>
+              <button onClick={() => setEditMember(null)} className="text-slate-400 hover:text-slate-600">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <form onSubmit={handleUpdate}>
+              <div className="px-6 py-5 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1.5">First Name</label>
+                    <input
+                      required
+                      type="text"
+                      value={editForm.firstName}
+                      onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))}
+                      className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1.5">Last Name</label>
+                    <input
+                      required
+                      type="text"
+                      value={editForm.lastName}
+                      onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))}
+                      className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Email</label>
+                  <input
+                    required
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))}
+                    className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Role</label>
+                  <select
+                    value={editForm.role}
+                    onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value as Role }))}
+                    className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] cursor-pointer"
+                  >
+                    {ROLES.map((r) => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 px-6 pb-5">
+                <button
+                  type="button"
+                  onClick={() => setEditMember(null)}
+                  className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="flex-1 h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-60"
+                >
+                  {editSaving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Add Employee Modal */}
