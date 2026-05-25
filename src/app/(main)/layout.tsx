@@ -1,18 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { getShopId, setSession } from "@/lib/session";
+import { getRole, getShopId, setSession } from "@/lib/session";
 import { MainHeader } from "@/components/main-header";
 import { Sidebar } from "@/components/sidebar";
+import { useFcmToken } from "@/hooks/use-fcm-token";
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [shopId, setShopId] = useState<string | null>(null);
+
+  const OWNER_ONLY = ["/members", "/payout", "/stores"];
+
+  useFcmToken(shopId);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -20,26 +27,57 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         router.replace("/login");
         return;
       }
-      if (!getShopId()) {
-        try {
-          const q = query(collection(db, "Shops"), where("ownerEmail", "==", (user.email ?? "").toLowerCase().trim()));
-          const snap = await getDocs(q);
+      const email = (user.email ?? "").toLowerCase().trim();
+      try {
+        let resolvedShopId = getShopId();
+
+        if (!resolvedShopId) {
+          // No session — must be an owner logging in fresh
+          const snap = await getDocs(query(collection(db, "Shops"), where("ownerEmail", "==", email)));
           if (snap.empty) {
             await auth.signOut();
             router.replace("/login");
             return;
           }
-          const doc = snap.docs[0];
-          setSession(doc.id, doc.data().name ?? "My Shop");
-        } catch {
-          router.replace("/login");
-          return;
+          const shopDoc = snap.docs[0];
+          resolvedShopId = shopDoc.id;
+          setSession(resolvedShopId, shopDoc.data().name ?? "My Shop", "owner");
+        } else {
+          // Session exists — always re-verify role from Firestore so old sessions get fixed
+          const shopSnap = await getDoc(doc(db, "Shops", resolvedShopId));
+          const shopData = shopSnap.data();
+          const shopName = shopData?.name ?? "My Shop";
+          const ownerEmail = (shopData?.ownerEmail ?? "").toLowerCase().trim();
+
+          if (email === ownerEmail) {
+            setSession(resolvedShopId, shopName, "owner");
+          } else {
+            // Direct doc lookup using uid — no index needed
+            const memberSnap = await getDoc(doc(db, "Shops", resolvedShopId, "members", user.uid));
+            const role = memberSnap.exists() ? (memberSnap.data()?.role ?? "Staff") : "Staff";
+            setSession(resolvedShopId, shopName, role);
+          }
         }
+
+        setShopId(resolvedShopId);
+      } catch {
+        router.replace("/login");
+        return;
       }
+
       setReady(true);
     });
     return () => unsub();
-  }, [router]);
+  }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Block staff/managers from restricted pages on every navigation
+  useEffect(() => {
+    if (!ready) return;
+    const role = getRole();
+    if (role !== "owner" && OWNER_ONLY.some((p) => pathname.startsWith(p))) {
+      router.replace("/dashboard");
+    }
+  }, [pathname, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) {
     return (

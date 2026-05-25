@@ -33,19 +33,27 @@ export default function LoginPage() {
       }
 
       // Check if staff member across all shops
-      const memberSnap = await getDocs(query(collectionGroup(db, "members"), where("email", "==", email)));
-      if (!memberSnap.empty) {
-        const memberDoc = memberSnap.docs[0];
-        const shopId = memberDoc.ref.parent.parent?.id ?? "";
-        const shopDoc = shopId ? await getDocs(query(collection(db, "Shops"), where("__name__", "==", shopId))) : null;
-        const shopName = shopDoc?.docs[0]?.data().name ?? "My Shop";
-        setSession(shopId, shopName);
-        router.push("/dashboard");
+      try {
+        const memberSnap = await getDocs(query(collectionGroup(db, "members"), where("email", "==", email)));
+        if (!memberSnap.empty) {
+          const memberDoc = memberSnap.docs[0];
+          const memberData = memberDoc.data();
+          const shopId = memberDoc.ref.parent.parent?.id ?? "";
+          const shopDoc = shopId ? await getDocs(query(collection(db, "Shops"), where("__name__", "==", shopId))) : null;
+          const shopName = shopDoc?.docs[0]?.data().name ?? "My Shop";
+          setSession(shopId, shopName, memberData.role ?? "Staff");
+          router.push("/dashboard");
+          return;
+        }
+      } catch {
+        // collectionGroup query failed (e.g. missing index) — treat as not found
+        await auth.signOut();
+        setError("Unable to sign in. Please contact your shop owner.");
         return;
       }
 
       await auth.signOut();
-      setError("No shop found for this account. Contact admin to register your shop.");
+      setError("No shop found for this account. Contact your shop owner.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("invalid-credential") || msg.includes("wrong-password") || msg.includes("user-not-found")) {
@@ -53,7 +61,7 @@ export default function LoginPage() {
       } else if (msg.includes("too-many-requests")) {
         setError("Too many attempts. Try again later.");
       } else {
-        setError(msg);
+        setError("Something went wrong. Please try again.");
       }
     } finally {
       setLoading(false);

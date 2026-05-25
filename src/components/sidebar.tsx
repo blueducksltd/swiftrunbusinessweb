@@ -7,10 +7,17 @@ import { useState, useEffect } from "react";
 import { signOut } from "firebase/auth";
 import { cn } from "@/lib/cn";
 import { auth } from "@/lib/firebase";
-import { clearSession, getShopId } from "@/lib/session";
+import { clearSession, getRole, getShopId } from "@/lib/session";
 import { subscribeToProducts, type Product } from "@/lib/firestore";
 
-const navItems = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ReactNode;
+  ownerOnly?: boolean;
+};
+
+const navItems: NavItem[] = [
   {
     label: "Dashboard",
     href: "/dashboard",
@@ -47,6 +54,7 @@ const navItems = [
   {
     label: "Sales",
     href: "/stores",
+    ownerOnly: true,
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="18" y1="20" x2="18" y2="10" />
@@ -67,6 +75,7 @@ const navItems = [
   {
     label: "Members",
     href: "/members",
+    ownerOnly: true,
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -79,6 +88,7 @@ const navItems = [
   {
     label: "Payout",
     href: "/payout",
+    ownerOnly: true,
     icon: (
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
@@ -99,6 +109,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const router = useRouter();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [updates, setUpdates] = useState<Product[]>([]);
+  const isOwner = getRole() === "owner";
 
   useEffect(() => {
     const shopId = getShopId();
@@ -125,7 +136,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-5 space-y-0.5">
-        {navItems.map((item) => {
+        {navItems.filter((item) => !item.ownerOnly || isOwner).map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link

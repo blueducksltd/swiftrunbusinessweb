@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getShopId, getShopName, setSession } from "@/lib/session";
+import { getRole, getShopId, getShopName, setSession } from "@/lib/session";
+import { auth as firebaseAuth } from "@/lib/firebase";
 import { subscribeToShop, subscribeToProducts, subscribeToOrders, type Product, type ErrandOrder } from "@/lib/firestore";
 import { useNotifications, timeAgo, type AppNotification, type NotifType } from "@/hooks/use-notifications";
 
@@ -11,11 +12,12 @@ import { useNotifications, timeAgo, type AppNotification, type NotifType } from 
 
 function notifStyle(type: NotifType) {
   switch (type) {
-    case "order_new":       return { bg: "bg-blue-50",  stroke: "#056abf" };
-    case "order_delivered": return { bg: "bg-green-50", stroke: "#16a34a" };
-    case "order_cancelled": return { bg: "bg-red-50",   stroke: "#dc2626" };
-    case "stock_low":       return { bg: "bg-amber-50", stroke: "#d97706" };
-    case "stock_out":       return { bg: "bg-red-50",   stroke: "#dc2626" };
+    case "order_new":            return { bg: "bg-blue-50",   stroke: "#056abf" };
+    case "order_delivered":      return { bg: "bg-green-50",  stroke: "#16a34a" };
+    case "order_cancelled":      return { bg: "bg-red-50",    stroke: "#dc2626" };
+    case "order_driver_arrived": return { bg: "bg-purple-50", stroke: "#7c3aed" };
+    case "stock_low":            return { bg: "bg-amber-50",  stroke: "#d97706" };
+    case "stock_out":            return { bg: "bg-red-50",    stroke: "#dc2626" };
   }
 }
 
@@ -29,6 +31,9 @@ function NotifIcon({ type }: { type: NotifType }) {
       {type === "order_delivered" && <polyline points="20 6 9 17 4 12" />}
       {type === "order_cancelled" && (
         <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>
+      )}
+      {type === "order_driver_arrived" && (
+        <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>
       )}
       {(type === "stock_low" || type === "stock_out") && (
         <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>
@@ -65,6 +70,14 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [shopEmail, setShopEmail] = useState("");
   const [shopCurrency, setShopCurrency] = useState<string | undefined>(undefined);
   const shopId = useRef(getShopId() ?? "");
+  const role = getRole();
+  const displayName = firebaseAuth.currentUser?.displayName ?? "";
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("") || "?";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -231,6 +244,19 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
             <span className="size-2 rounded-full bg-green-500 shrink-0" />
             <span className="max-w-40 truncate text-xs font-black text-slate-800">{shopName.toUpperCase()}</span>
           </Link>
+
+          {/* Logged-in user chip */}
+          <div className="hidden sm:flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 h-9 bg-slate-50">
+            <div className="size-6 rounded-full bg-[#056abf] grid place-items-center shrink-0">
+              <span className="text-[10px] font-black text-white">{initials}</span>
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="text-xs font-black text-slate-800 truncate max-w-28">{displayName || "User"}</span>
+              <span className={`text-[10px] font-bold ${role === "owner" ? "text-green-600" : role === "Manager" ? "text-blue-600" : "text-slate-400"}`}>
+                {role === "owner" ? "Owner" : role}
+              </span>
+            </div>
+          </div>
 
           {/* Bell */}
           <div className="relative">

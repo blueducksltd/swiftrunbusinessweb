@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
 import { getOrderStats, subscribeToOrders, subscribeToShop } from "@/lib/firestore";
-import { getShopId, getShopName } from "@/lib/session";
+import { getRole, getShopId, getShopName } from "@/lib/session";
 
 type LiveOrder = {
   id: string;
@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const [shopTypeName, setShopTypeName] = useState("");
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const shopName = getShopName();
+  const isOwner = getRole() === "owner";
 
   useEffect(() => {
     const shopId = getShopId();
@@ -66,12 +67,19 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const statCards = [
-    { label: "Total orders", value: String(stats.total), delta: `${stats.pending} active` },
-    { label: "Revenue", value: fmt(stats.totalRevenue, shopCurrency), delta: `${stats.completed} completed` },
-    { label: "Avg order", value: fmt(stats.avgOrder, shopCurrency), delta: `${stats.cancelled} cancelled` },
-    { label: "Pending", value: String(stats.pending), delta: "active now" },
-  ];
+  const statCards = isOwner
+    ? [
+        { label: "Total orders", value: String(stats.total), delta: `${stats.pending} active` },
+        { label: "Revenue", value: fmt(stats.totalRevenue, shopCurrency), delta: `${stats.completed} completed` },
+        { label: "Avg order", value: fmt(stats.avgOrder, shopCurrency), delta: `${stats.cancelled} cancelled` },
+        { label: "Pending", value: String(stats.pending), delta: "active now" },
+      ]
+    : [
+        { label: "Total orders", value: String(stats.total), delta: `${stats.pending} active` },
+        { label: "Pending", value: String(stats.pending), delta: "active now" },
+        { label: "Completed", value: String(stats.completed), delta: "all time" },
+        { label: "Cancelled", value: String(stats.cancelled), delta: "all time" },
+      ];
 
   return (
     <>
@@ -100,7 +108,7 @@ export default function DashboardPage() {
           ))}
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1.45fr_0.9fr]">
+        <section className={isOwner ? "grid gap-6 xl:grid-cols-[1.45fr_0.9fr]" : ""}>
           <div className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="flex items-center justify-between gap-4">
               <div>
@@ -122,33 +130,37 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-[#071a2f] p-5 text-white">
-            <p className="text-sm font-semibold text-blue-200">Total revenue</p>
-            <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue, shopCurrency)}</p>
-            <div className="mt-6 flex h-40 items-end gap-2">
-              {[44, 70, 58, 90, 64, 112, 84, 130, 102, 148, 118, 160].map((height, index) => (
-                <div key={index} className="flex-1 rounded-t bg-blue-400" style={{ height }} />
-              ))}
+          {isOwner && (
+            <div className="rounded-xl border border-slate-200 bg-[#071a2f] p-5 text-white">
+              <p className="text-sm font-semibold text-blue-200">Total revenue</p>
+              <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue, shopCurrency)}</p>
+              <div className="mt-6 flex h-40 items-end gap-2">
+                {[44, 70, 58, 90, 64, 112, 84, 130, 102, 148, 118, 160].map((height, index) => (
+                  <div key={index} className="flex-1 rounded-t bg-blue-400" style={{ height }} />
+                ))}
+              </div>
+              <p className="mt-4 text-sm text-blue-100">{stats.completed} completed · {stats.cancelled} cancelled</p>
             </div>
-            <p className="mt-4 text-sm text-blue-100">{stats.completed} completed · {stats.cancelled} cancelled</p>
-          </div>
+          )}
         </section>
 
         <section className="grid gap-6 xl:grid-cols-3">
-          <Panel title="Order summary" subtitle="All time stats">
-            <div className="space-y-3">
-              {[
-                { name: "Total orders", value: String(stats.total) },
-                { name: "Completed", value: String(stats.completed) },
-                { name: "Cancelled", value: String(stats.cancelled) },
-              ].map((item) => (
-                <div key={item.name} className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
-                  <p className="font-bold">{item.name}</p>
-                  <p className="font-black tabular-nums text-[#056abf]">{item.value}</p>
-                </div>
-              ))}
-            </div>
-          </Panel>
+          {isOwner && (
+            <Panel title="Order summary" subtitle="All time stats">
+              <div className="space-y-3">
+                {[
+                  { name: "Total orders", value: String(stats.total) },
+                  { name: "Completed", value: String(stats.completed) },
+                  { name: "Cancelled", value: String(stats.cancelled) },
+                ].map((item) => (
+                  <div key={item.name} className="flex items-center justify-between rounded-lg bg-slate-50 p-3">
+                    <p className="font-bold">{item.name}</p>
+                    <p className="font-black tabular-nums text-[#056abf]">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           <Panel title="Delivery queue" subtitle="Active SwiftRun riders">
             <div className="space-y-3">
@@ -173,9 +185,9 @@ export default function DashboardPage() {
           <Panel title="Store actions" subtitle="Common business tasks">
             <div className="grid gap-3">
               {[
-                { label: "Update opening hours", href: "/business" },
                 { label: "Add product", href: "/products" },
                 { label: "View all orders", href: "/orders" },
+                { label: "View reviews", href: "/reviews" },
               ].map(({ label, href }) => (
                 <a
                   key={label}
