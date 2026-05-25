@@ -11,7 +11,7 @@ import {
   removeMember,
   type ShopMember,
 } from "@/lib/firestore";
-import { getShopId } from "@/lib/session";
+import { getShopId, getShopName } from "@/lib/session";
 
 type Role = "Admin" | "Manager" | "Staff" | "Cashier";
 
@@ -77,6 +77,16 @@ export default function MembersPage() {
         isActive: true,
         invitedAt: null,
       });
+      fetch("/api/member-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberEmail: form.email,
+          memberName: `${form.firstName} ${form.lastName}`.trim(),
+          shopName: getShopName(),
+          role: form.role || "Staff",
+        }),
+      }).catch(() => {});
       setAddOpen(false);
       setForm({ firstName: "", lastName: "", email: "", role: "" });
     } finally {
@@ -128,6 +138,17 @@ export default function MembersPage() {
     setResending(emp.id);
     try {
       await resendMemberInvitation(shopId, emp.id);
+      await fetch("/api/member-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberEmail: emp.email,
+          memberName: `${emp.firstName} ${emp.lastName}`.trim(),
+          shopName: getShopName(),
+          role: emp.role,
+          isResend: true,
+        }),
+      });
       alert(`Invitation resent to ${emp.email}`);
     } finally {
       setResending(null);
