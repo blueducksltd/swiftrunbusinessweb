@@ -47,7 +47,7 @@ export default function MembersPage() {
   const [members, setMembers] = useState<ShopMember[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [rolePickerFor, setRolePickerFor] = useState<string | null>(null);
-  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", role: "" as Role | "" });
+  const [form, setForm] = useState({ firstName: "", lastName: "", email: "", password: "", role: "" as Role | "" });
   const [saving, setSaving] = useState(false);
 
   // Edit state
@@ -55,6 +55,14 @@ export default function MembersPage() {
   const [editForm, setEditForm] = useState({ firstName: "", lastName: "", email: "", role: "" as Role | "" });
   const [editSaving, setEditSaving] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
+
+  // Change password state
+  const [changePwdFor, setChangePwdFor] = useState<ShopMember | null>(null);
+  const [newPwd, setNewPwd] = useState("");
+  const [changingPwd, setChangingPwd] = useState(false);
+
+  // Suspend state
+  const [suspending, setSuspending] = useState<string | null>(null);
 
   useEffect(() => {
     const shopId = getShopId();
@@ -69,26 +77,26 @@ export default function MembersPage() {
     if (!shopId) return;
     setSaving(true);
     try {
-      await addMember(shopId, {
-        firstName: form.firstName,
-        lastName: form.lastName,
-        email: form.email,
-        role: form.role || "Staff",
-        isActive: true,
-        invitedAt: null,
-      });
-      fetch("/api/member-invite", {
+      const res = await fetch("/api/staff/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          memberEmail: form.email,
-          memberName: `${form.firstName} ${form.lastName}`.trim(),
-          shopName: getShopName(),
+          email: form.email,
+          password: form.password,
+          firstName: form.firstName,
+          lastName: form.lastName,
           role: form.role || "Staff",
+          shopId,
+          shopName: getShopName(),
         }),
-      }).catch(() => {});
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        alert(`Failed to create account: ${json.reason}`);
+        return;
+      }
       setAddOpen(false);
-      setForm({ firstName: "", lastName: "", email: "", role: "" });
+      setForm({ firstName: "", lastName: "", email: "", password: "", role: "" });
     } finally {
       setSaving(false);
     }
@@ -129,6 +137,48 @@ export default function MembersPage() {
       setEditMember(null);
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  async function handleSuspend(emp: ShopMember) {
+    const shopId = getShopId();
+    if (!shopId) return;
+    const willSuspend = emp.isActive;
+    if (!confirm(`${willSuspend ? "Suspend" : "Reactivate"} ${emp.firstName}? They will ${willSuspend ? "lose" : "regain"} access immediately.`)) return;
+    setSuspending(emp.id);
+    try {
+      const res = await fetch("/api/staff/suspend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emp.email, shopId, suspend: willSuspend }),
+      });
+      const json = await res.json();
+      if (!json.ok) alert(`Failed: ${json.reason}`);
+    } finally {
+      setSuspending(null);
+    }
+  }
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!changePwdFor || !newPwd) return;
+    setChangingPwd(true);
+    try {
+      const res = await fetch("/api/staff/set-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: changePwdFor.email, password: newPwd }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setChangePwdFor(null);
+        setNewPwd("");
+        alert("Password updated successfully.");
+      } else {
+        alert(`Failed: ${json.reason}`);
+      }
+    } finally {
+      setChangingPwd(false);
     }
   }
 
@@ -187,6 +237,7 @@ export default function MembersPage() {
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Last Name</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Email</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Role</th>
+                  <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Status</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3 w-10" />
                 </tr>
               </thead>
@@ -232,33 +283,38 @@ export default function MembersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
+                      <span className={cn("inline-flex px-2 py-0.5 rounded-full text-xs font-bold", emp.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600")}>
+                        {emp.isActive ? "Active" : "Suspended"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          title="Edit"
-                          onClick={() => openEdit(emp)}
-                          className="text-slate-400 hover:text-[#056abf] transition-colors"
-                        >
+                        <button title="Edit" onClick={() => openEdit(emp)} className="text-slate-400 hover:text-[#056abf] transition-colors">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                           </svg>
                         </button>
-                        <button
-                          title="Resend invitation"
-                          onClick={() => handleResend(emp)}
-                          disabled={resending === emp.id}
-                          className="text-slate-400 hover:text-amber-500 transition-colors disabled:opacity-40"
-                        >
+                        <button title="Change password" onClick={() => { setChangePwdFor(emp); setNewPwd(""); }} className="text-slate-400 hover:text-amber-500 transition-colors">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                            <polyline points="22,6 12,13 2,6" />
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                           </svg>
                         </button>
                         <button
-                          title="Remove"
-                          onClick={() => handleDelete(emp.id)}
-                          className="text-slate-400 hover:text-red-500 transition-colors"
+                          title={emp.isActive ? "Suspend" : "Reactivate"}
+                          onClick={() => handleSuspend(emp)}
+                          disabled={suspending === emp.id}
+                          className={cn("transition-colors disabled:opacity-40", emp.isActive ? "text-slate-400 hover:text-orange-500" : "text-slate-400 hover:text-green-600")}
                         >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            {emp.isActive
+                              ? <><circle cx="12" cy="12" r="10"/><line x1="10" y1="15" x2="10" y2="9"/><line x1="14" y1="15" x2="14" y2="9"/></>
+                              : <><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></>
+                            }
+                          </svg>
+                        </button>
+                        <button title="Remove" onClick={() => handleDelete(emp.id)} className="text-slate-400 hover:text-red-500 transition-colors">
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="3 6 5 6 21 6" />
                             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
@@ -279,6 +335,45 @@ export default function MembersPage() {
       {/* Backdrop for role picker */}
       {rolePickerFor !== null && (
         <div className="fixed inset-0 z-10" onClick={() => setRolePickerFor(null)} />
+      )}
+
+      {/* Change Password Modal */}
+      {changePwdFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="font-black text-slate-900">Change Password</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{changePwdFor.firstName} {changePwdFor.lastName}</p>
+              </div>
+              <button onClick={() => setChangePwdFor(null)} className="text-slate-400 hover:text-slate-600">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+            <form onSubmit={handleChangePassword}>
+              <div className="px-6 py-5">
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">New Password</label>
+                <input
+                  required
+                  type="password"
+                  minLength={6}
+                  value={newPwd}
+                  onChange={(e) => setNewPwd(e.target.value)}
+                  placeholder="Min. 6 characters"
+                  className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                />
+              </div>
+              <div className="flex gap-3 px-6 pb-5">
+                <button type="button" onClick={() => setChangePwdFor(null)} className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
+                <button type="submit" disabled={changingPwd} className="flex-1 h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-60">
+                  {changingPwd ? "Updating…" : "Update Password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Edit Employee Modal */}
@@ -419,6 +514,19 @@ export default function MembersPage() {
                     {ROLES.map((r) => <option key={r}>{r}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Password</label>
+                  <input
+                    required
+                    type="password"
+                    minLength={6}
+                    value={form.password}
+                    onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                    placeholder="Min. 6 characters"
+                    className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">Share this with the employee so they can log in.</p>
+                </div>
               </div>
               <div className="px-6 pb-5">
                 <button
@@ -426,7 +534,7 @@ export default function MembersPage() {
                   disabled={saving}
                   className="w-full h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : "Send Invitation"}
+                  {saving ? "Creating…" : "Create Account"}
                 </button>
               </div>
             </form>
