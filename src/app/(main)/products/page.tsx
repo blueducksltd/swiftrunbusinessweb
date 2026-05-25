@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import {
@@ -339,35 +339,55 @@ export default function ProductsPage() {
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3 w-10" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {displayed.map((p) => (
-                  <tr
-                    key={p.id}
-                    onClick={() => setDetailProduct(p)}
-                    className="hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <td className="px-4 py-2">
-                      {p.raw.imageUrl ? (
-                        <img src={p.raw.imageUrl} alt={p.name} style={{width:72,height:72,minWidth:72,objectFit:"cover",borderRadius:10}} />
-                      ) : (
-                        <div className={cn("rounded-lg shrink-0", p.color)} style={{width:72,height:72,minWidth:72,borderRadius:10}} />
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">{p.name}</td>
-                    <td className="px-4 py-2.5 font-bold text-slate-900">{p.price}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{p.qty}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={cn("inline-flex px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[p.status])}>
-                        {p.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-500">{p.date}</td>
-                    <td className="px-4 py-2.5">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </td>
-                  </tr>
+              <tbody>
+                {displayed.map((p, idx) => (
+                  <Fragment key={p.id}>
+                    <tr
+                      onClick={() => setDetailProduct(p)}
+                      className={cn("hover:bg-slate-50 transition-colors cursor-pointer", idx > 0 && "border-t border-slate-100")}
+                    >
+                      <td className="px-4 py-2">
+                        {p.raw.imageUrl ? (
+                          <img src={p.raw.imageUrl} alt={p.name} style={{width:72,height:72,minWidth:72,objectFit:"cover",borderRadius:10}} />
+                        ) : (
+                          <div className={cn("rounded-lg shrink-0", p.color)} style={{width:72,height:72,minWidth:72,borderRadius:10}} />
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-800">{p.name}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-900">{p.price}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{p.qty}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={cn("inline-flex px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[p.status])}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-500">{p.date}</td>
+                      <td className="px-4 py-2.5">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </td>
+                    </tr>
+                    {p.raw.options && p.raw.options.length > 0 && (
+                      <tr
+                        onClick={() => setDetailProduct(p)}
+                        className="cursor-pointer hover:bg-slate-50 transition-colors bg-slate-50/50"
+                      >
+                        <td colSpan={7} className="px-4 pb-3 pt-1">
+                          <div className="flex flex-wrap gap-1.5">
+                            {p.raw.options.map((opt, i) => (
+                              <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-200 bg-white text-xs text-slate-600">
+                                {opt.name}
+                                {opt.price > 0 && (
+                                  <span className="font-bold text-slate-800">+{formatMoney(opt.price, p.raw.currency || shopCurrency)}</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
