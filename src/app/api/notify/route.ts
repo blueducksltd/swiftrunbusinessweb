@@ -5,6 +5,7 @@ const COLORS: Record<string, string> = {
   order_new: "#056abf",
   order_delivered: "#16a34a",
   order_cancelled: "#dc2626",
+  order_driver_arrived: "#7c3aed",
   stock_low: "#d97706",
   stock_out: "#dc2626",
 };
@@ -13,6 +14,7 @@ const ICONS: Record<string, string> = {
   order_new: "🛍️",
   order_delivered: "✅",
   order_cancelled: "❌",
+  order_driver_arrived: "🚗",
   stock_low: "⚠️",
   stock_out: "🚫",
 };
@@ -34,10 +36,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, reason: "SMTP not configured" });
     }
 
+    const smtpPort = Number(process.env.SMTP_PORT ?? 587);
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST ?? "smtp.gmail.com",
-      port: Number(process.env.SMTP_PORT ?? 587),
-      secure: false,
+      port: smtpPort,
+      secure: smtpPort === 465,
       auth: { user: smtpUser, pass: smtpPass },
     });
 
