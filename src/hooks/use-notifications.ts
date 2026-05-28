@@ -71,7 +71,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     readIds.current = loadReadIds();
   }, []);
 
-  // Load existing notifications from Firestore on mount
+  // Load persisted portal notifications (status changes, stock alerts) from businessNotifications
   useEffect(() => {
     if (!shopId) return;
     const q = query(
@@ -95,6 +95,77 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         setNotifications((prev) => {
           const existingIds = new Set(prev.map((n) => n.id));
           const fresh = loaded.filter((n) => !existingIds.has(n.id));
+          return [...prev, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 60);
+        });
+      }
+    }).catch(() => {});
+  }, [shopId]);
+
+  // Load recent orders directly from ErrandOrders — works even if portal was closed when order arrived
+  useEffect(() => {
+    if (!shopId) return;
+    getDocs(
+      query(
+        collection(db, "ErrandOrders"),
+        where("shopId", "==", shopId),
+        orderBy("createdAt", "desc"),
+        limit(30)
+      )
+    ).then((snap) => {
+      const items: AppNotification[] = snap.docs.map((d) => {
+        const data = d.data();
+        const id = `order_new_${d.id}`;
+        const ts: number = data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
+        const num = data.orderNumber ?? d.id.slice(0, 6).toUpperCase();
+        const amt = fmtCurrency(data.total ?? 0, shopCurrency);
+        return {
+          id,
+          type: "order_new" as NotifType,
+          title: "New Order",
+          subtitle: `#${num} — ${amt}`,
+          ts,
+          read: readIds.current.has(id),
+        };
+      });
+      if (items.length > 0) {
+        setNotifications((prev) => {
+          const existingIds = new Set(prev.map((n) => n.id));
+          const fresh = items.filter((n) => !existingIds.has(n.id));
+          return [...prev, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 60);
+        });
+      }
+    }).catch(() => {});
+  }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load recent reviews directly from Shops/{shopId}/reviews — works even if portal was closed
+  useEffect(() => {
+    if (!shopId) return;
+    getDocs(
+      query(
+        collection(db, "Shops", shopId, "reviews"),
+        orderBy("createdAt", "desc"),
+        limit(15)
+      )
+    ).then((snap) => {
+      const items: AppNotification[] = snap.docs.map((d) => {
+        const data = d.data();
+        const id = `rating_new_${d.id}`;
+        const ts: number = data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
+        const rating = (data.rating as number) ?? 0;
+        const reviewer = (data.userName as string) ?? (data.name as string) ?? "Customer";
+        return {
+          id,
+          type: "rating_new" as NotifType,
+          title: "New Review",
+          subtitle: `${rating}/5 stars — ${reviewer}`,
+          ts,
+          read: readIds.current.has(id),
+        };
+      });
+      if (items.length > 0) {
+        setNotifications((prev) => {
+          const existingIds = new Set(prev.map((n) => n.id));
+          const fresh = items.filter((n) => !existingIds.has(n.id));
           return [...prev, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 60);
         });
       }
