@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   onSnapshot,
@@ -9,6 +9,7 @@ import {
   where,
   limit,
   getDocs,
+  getDoc,
   setDoc,
   doc,
   serverTimestamp,
@@ -36,51 +37,68 @@ export interface AppNotification {
   read: boolean;
 }
 
-// ── Persistence ────────────────────────────────────────────────────────────
+// ── Local cache for clearedAt (fast synchronous read on mount) ─────────────
 
-const STORAGE_KEY = "sr_biz_read_notifs";
+const CLEARED_KEY = "sr_biz_cleared_at";
 
-function loadReadIds(): Set<string> {
+function loadClearedAt(): number {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    return parseFloat(localStorage.getItem(CLEARED_KEY) || "0");
   } catch {
-    return new Set();
+    return 0;
   }
 }
 
-function persistReadIds(ids: Set<string>) {
+function saveClearedAt(ts: number) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...ids].slice(-300)));
+    localStorage.setItem(CLEARED_KEY, ts.toString());
   } catch {}
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
 export function useNotifications(shopId: string, shopEmail: string, shopCurrency?: string) {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  // Raw notifications — read field is derived at return time from clearedAt
+  const [notifications, setNotifications] = useState<Omit<AppNotification, "read">[]>([]);
+
+  // clearedAt: any notification with ts <= clearedAt is considered read.
+  // Stored in Firestore so it syncs across all devices.
+  const [clearedAt, setClearedAt] = useState<number>(loadClearedAt);
 
   const ordersReady = useRef(false);
   const productsReady = useRef(false);
   const reviewsReady = useRef(false);
   const prevStocks = useRef<Map<string, { stock: number; available: boolean }>>(new Map());
-  const readIds = useRef<Set<string>>(new Set());
 
-  // Load persisted read IDs on mount
-  useEffect(() => {
-    readIds.current = loadReadIds();
-  }, []);
+  // ── Load clearedAt from Firestore on mount (cross-device sync) ────────────
 
-  // Load persisted portal notifications (status changes, stock alerts) from businessNotifications
   useEffect(() => {
     if (!shopId) return;
-    const q = query(
-      collection(db, "Shops", shopId, "businessNotifications"),
-      orderBy("ts", "desc"),
-      limit(60)
-    );
-    getDocs(q).then((snap) => {
-      const loaded: AppNotification[] = snap.docs.map((d) => {
+    getDoc(doc(db, "Shops", shopId, "notificationMeta", "state"))
+      .then((snap) => {
+        if (snap.exists()) {
+          const ts = (snap.data().clearedAt as number) ?? 0;
+          if (ts > clearedAt) {
+            setClearedAt(ts);
+            saveClearedAt(ts);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load persisted portal notifications (status changes, stock alerts) ────
+
+  useEffect(() => {
+    if (!shopId) return;
+    getDocs(
+      query(
+        collection(db, "Shops", shopId, "businessNotifications"),
+        orderBy("ts", "desc"),
+        limit(60)
+      )
+    ).then((snap) => {
+      const loaded = snap.docs.map((d) => {
         const data = d.data();
         return {
           id: d.id,
@@ -88,7 +106,6 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
           title: data.title as string,
           subtitle: data.subtitle as string,
           ts: data.ts as number,
-          read: readIds.current.has(d.id),
         };
       });
       if (loaded.length > 0) {
@@ -101,7 +118,8 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     }).catch(() => {});
   }, [shopId]);
 
-  // Load recent orders directly from ErrandOrders — works even if portal was closed when order arrived
+  // ── Load recent orders directly from ErrandOrders ────────────────────────
+
   useEffect(() => {
     if (!shopId) return;
     getDocs(
@@ -112,20 +130,13 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         limit(30)
       )
     ).then((snap) => {
-      const items: AppNotification[] = snap.docs.map((d) => {
+      const items = snap.docs.map((d) => {
         const data = d.data();
         const id = `order_new_${d.id}`;
         const ts: number = data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
         const num = data.orderNumber ?? d.id.slice(0, 6).toUpperCase();
         const amt = fmtCurrency(data.total ?? 0, shopCurrency);
-        return {
-          id,
-          type: "order_new" as NotifType,
-          title: "New Order",
-          subtitle: `#${num} — ${amt}`,
-          ts,
-          read: readIds.current.has(id),
-        };
+        return { id, type: "order_new" as NotifType, title: "New Order", subtitle: `#${num} — ${amt}`, ts };
       });
       if (items.length > 0) {
         setNotifications((prev) => {
@@ -137,7 +148,8 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     }).catch(() => {});
   }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load recent reviews directly from Shops/{shopId}/reviews — works even if portal was closed
+  // ── Load recent reviews directly from Shops/{shopId}/reviews ─────────────
+
   useEffect(() => {
     if (!shopId) return;
     getDocs(
@@ -147,20 +159,13 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         limit(15)
       )
     ).then((snap) => {
-      const items: AppNotification[] = snap.docs.map((d) => {
+      const items = snap.docs.map((d) => {
         const data = d.data();
         const id = `rating_new_${d.id}`;
         const ts: number = data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
         const rating = (data.rating as number) ?? 0;
         const reviewer = (data.userName as string) ?? (data.name as string) ?? "Customer";
-        return {
-          id,
-          type: "rating_new" as NotifType,
-          title: "New Review",
-          subtitle: `${rating}/5 stars — ${reviewer}`,
-          ts,
-          read: readIds.current.has(id),
-        };
+        return { id, type: "rating_new" as NotifType, title: "New Review", subtitle: `${rating}/5 stars — ${reviewer}`, ts };
       });
       if (items.length > 0) {
         setNotifications((prev) => {
@@ -174,20 +179,17 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
 
   const push = useCallback(
     (notif: Omit<AppNotification, "read">) => {
-      const alreadyRead = readIds.current.has(notif.id);
       setNotifications((prev) => {
         if (prev.some((n) => n.id === notif.id)) return prev;
-        return [{ ...notif, read: alreadyRead }, ...prev].slice(0, 60);
+        return [notif, ...prev].slice(0, 60);
       });
-      if (!alreadyRead) {
-        _sendEmail(notif, shopEmail);
-        if (shopId) {
-          setDoc(
-            doc(db, "Shops", shopId, "businessNotifications", notif.id),
-            { type: notif.type, title: notif.title, subtitle: notif.subtitle, ts: notif.ts, createdAt: serverTimestamp() },
-            { merge: true }
-          ).catch(() => {});
-        }
+      _sendEmail(notif, shopEmail);
+      if (shopId) {
+        setDoc(
+          doc(db, "Shops", shopId, "businessNotifications", notif.id),
+          { type: notif.type, title: notif.title, subtitle: notif.subtitle, ts: notif.ts, createdAt: serverTimestamp() },
+          { merge: true }
+        ).catch(() => {});
       }
     },
     [shopEmail, shopId]
@@ -208,7 +210,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
 
     const unsub = onSnapshot(q, (snap) => {
       snap.docChanges().forEach((change) => {
-        if (!ordersReady.current) return; // skip initial load
+        if (!ordersReady.current) return;
 
         const d = change.doc.data();
         const id = change.doc.id;
@@ -316,22 +318,34 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     return () => { unsub(); reviewsReady.current = false; };
   }, [shopId, push]);
 
-  // ── Mark all read ──────────────────────────────────────────────────────
+  // ── Mark all read — writes clearedAt to Firestore for cross-device sync ───
 
   const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    setNotifications((prev) => {
-      const updated = prev.map((n) => ({ ...n, read: true }));
-      const newIds = new Set([...readIds.current, ...updated.map((n) => n.id)]);
-      readIds.current = newIds;
-      persistReadIds(newIds);
-      return updated;
-    });
-  }, []);
+    const now = Date.now();
+    setClearedAt(now);
+    saveClearedAt(now);
+    if (shopId) {
+      setDoc(
+        doc(db, "Shops", shopId, "notificationMeta", "state"),
+        { clearedAt: now },
+        { merge: true }
+      ).catch(() => {});
+    }
+  }, [shopId]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  // ── Derive read field from clearedAt at render time ────────────────────
 
-  return { notifications, unreadCount, markAllRead };
+  const displayNotifications = useMemo(
+    () => notifications.map((n) => ({ ...n, read: n.ts <= clearedAt })),
+    [notifications, clearedAt]
+  );
+
+  const unreadCount = useMemo(
+    () => displayNotifications.filter((n) => !n.read).length,
+    [displayNotifications]
+  );
+
+  return { notifications: displayNotifications, unreadCount, markAllRead };
 }
 
 // ── Email helper ───────────────────────────────────────────────────────────
@@ -344,7 +358,7 @@ async function _sendEmail(notif: Omit<AppNotification, "read">, shopEmail: strin
       body: JSON.stringify({ type: notif.type, title: notif.title, subtitle: notif.subtitle, shopEmail }),
     });
   } catch {
-    // non-fatal — email failure must never break UI
+    // non-fatal
   }
 }
 
