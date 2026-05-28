@@ -14,6 +14,9 @@ type DisplayOrder = {
   id: string;
   product: string;
   customer: string;
+  customerId: string;
+  driverId: string | null;
+  shopName: string;
   qty: number;
   totalRaw: number;
   status: OrderStatus;
@@ -71,13 +74,13 @@ function mapStatus(s: ErrandStatus): OrderStatus {
 
 // What Firestore status the store should set next when they click the action button.
 function nextFirestoreStatus(current: ErrandStatus): ErrandStatus | null {
-  if (current === "pending" || current === "accepted" || current === "driver_at_shop") return "preparing";
+  if (current === "accepted" || current === "driver_at_shop") return "preparing";
   if (current === "preparing") return "ready";
-  return null; // no store action for ready / picked_up / delivered / cancelled
+  return null; // no store action for pending / ready / picked_up / delivered / cancelled
 }
 
 function actionLabel(current: ErrandStatus): string | null {
-  if (current === "pending" || current === "accepted" || current === "driver_at_shop") return "Start Preparing";
+  if (current === "accepted" || current === "driver_at_shop") return "Start Preparing";
   if (current === "preparing") return "Mark Ready";
   return null;
 }
@@ -104,6 +107,9 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
     product: o.items.map((i) => i.name).join(", ") || "—",
     customer: o.customerName || "Unknown",
+    customerId: o.customerId ?? "",
+    driverId: o.driverId ?? null,
+    shopName: o.shopName ?? "",
     qty: o.items.reduce((s, i) => s + (i.qty ?? 1), 0),
     totalRaw: o.total ?? 0,
     status,
@@ -115,15 +121,24 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
   };
 }
 
+function notifyOrderStatus(customerId: string, driverId: string | null, status: string, shopName: string) {
+  fetch("/api/errand-notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ customerId, driverId, status, shopName }),
+  }).catch(() => {});
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [activeTab, setActiveTab] = useState<OrderStatus | "All">("All");
   const [detailOrder, setDetailOrder] = useState<DisplayOrder | null>(null);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const pendingActionId = useRef<string | null>(null);
+  const pendingRejectId = useRef<string | null>(null);
 
   const playSound = useCallback(() => {
     try {
@@ -173,10 +188,35 @@ export default function OrdersPage() {
             : o
         )
       );
+      notifyOrderStatus(order.customerId, order.driverId, next, order.shopName);
     } finally {
       setUpdating(false);
       setConfirmOpen(false);
       pendingActionId.current = null;
+    }
+  }
+
+  async function handleReject() {
+    const id = pendingRejectId.current;
+    if (!id) return;
+    const order = orders.find((o) => o.firestoreId === id);
+    if (!order) return;
+
+    setUpdating(true);
+    try {
+      await updateOrderStatus(id, "cancelled");
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.firestoreId === id
+            ? { ...o, status: "Cancelled", firestoreStatus: "cancelled", color: STATUS_COLORS["Cancelled"] }
+            : o
+        )
+      );
+      notifyOrderStatus(order.customerId, order.driverId, "cancelled", order.shopName);
+    } finally {
+      setUpdating(false);
+      setRejectOpen(false);
+      pendingRejectId.current = null;
     }
   }
 
@@ -272,12 +312,6 @@ export default function OrdersPage() {
                 <p className="text-xs text-slate-400 mt-0.5">{detailOrder.id}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setNotifOpen(true); setDetailOrder(null); }}
-                  className="h-8 px-3 rounded-lg bg-slate-100 text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors"
-                >
-                  Notify
-                </button>
                 <button onClick={() => setDetailOrder(null)} className="text-slate-400 hover:text-slate-600">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -359,6 +393,18 @@ export default function OrdersPage() {
               >
                 Close
               </button>
+              {detailOrder.firestoreStatus !== "cancelled" && detailOrder.firestoreStatus !== "delivered" && detailOrder.firestoreStatus !== "picked_up" && (
+                <button
+                  onClick={() => {
+                    pendingRejectId.current = detailOrder.firestoreId;
+                    setRejectOpen(true);
+                    setDetailOrder(null);
+                  }}
+                  className="h-10 px-4 rounded-lg border border-red-200 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Reject
+                </button>
+              )}
               {actionLabel(detailOrder.firestoreStatus) && (
                 <button
                   onClick={() => {
@@ -414,35 +460,32 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Notifications Modal */}
-      {notifOpen && (
+      {/* Reject Confirm Modal */}
+      {rejectOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-              <h2 className="font-black text-slate-900">Send Notification</h2>
-              <button onClick={() => setNotifOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm text-center p-8">
+            <div className="size-16 rounded-full bg-red-50 grid place-items-center mx-auto mb-4">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </div>
-            <div className="px-5 py-4 space-y-2">
-              {["Order is being prepared", "Order is ready for pickup", "Order is on its way", "Order has been picked up"].map((msg) => (
-                <button
-                  key={msg}
-                  onClick={() => setNotifOpen(false)}
-                  className="w-full text-left h-11 px-4 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:border-[#056abf] hover:text-[#056abf] transition-colors"
-                >
-                  {msg}
-                </button>
-              ))}
-            </div>
-            <div className="px-5 pb-5">
+            <h3 className="text-lg font-black text-slate-900 mb-2">Reject Order?</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              This will cancel the order and notify the customer. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
               <button
-                onClick={() => setNotifOpen(false)}
-                className="w-full h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                onClick={() => { setRejectOpen(false); pendingRejectId.current = null; }}
+                className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
-                Send Now
+                Go Back
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={updating}
+                className="flex-1 h-10 rounded-lg bg-red-600 text-white font-bold text-sm hover:bg-red-700 transition-colors disabled:opacity-60"
+              >
+                {updating ? "Cancelling…" : "Reject Order"}
               </button>
             </div>
           </div>

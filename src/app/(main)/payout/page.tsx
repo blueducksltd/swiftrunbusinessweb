@@ -473,6 +473,22 @@ function PaystackForm({
   );
 }
 
+// ── IBAN validation ───────────────────────────────────────────────────────
+
+function validateIban(raw: string): string {
+  const iban = raw.replace(/\s/g, "").toUpperCase();
+  if (iban.length < 5) return "IBAN is too short";
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(iban)) return "IBAN format is invalid";
+  // MOD-97 check
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  const numeric = rearranged.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let remainder = 0;
+  for (const ch of numeric) {
+    remainder = (remainder * 10 + parseInt(ch, 10)) % 97;
+  }
+  return remainder === 1 ? "" : "IBAN check digits are invalid";
+}
+
 // ── Bank transfer form (international) ───────────────────────────────────
 
 function BankTransferForm({
@@ -494,6 +510,7 @@ function BankTransferForm({
   const [holderName, setHolderName] = useState(existing?.accountHolderName ?? "");
   const [accountNumber, setAccountNumber] = useState(existing?.accountNumber ?? "");
   const [iban, setIban] = useState(existing?.iban ?? "");
+  const [ibanError, setIbanError] = useState("");
   const [swiftBic, setSwiftBic] = useState(existing?.swiftBic ?? "");
   const [sortCode, setSortCode] = useState(existing?.sortCode ?? "");
   const [routingNumber, setRoutingNumber] = useState(existing?.routingNumber ?? "");
@@ -564,10 +581,16 @@ function BankTransferForm({
             <input
               type="text"
               value={iban}
-              onChange={(e) => setIban(e.target.value.toUpperCase().replace(/\s/g, ""))}
+              onChange={(e) => {
+                const val = e.target.value.toUpperCase().replace(/\s/g, "");
+                setIban(val);
+                setIbanError(val.length >= 5 ? validateIban(val) : "");
+              }}
+              onBlur={() => setIbanError(iban.length > 0 ? validateIban(iban) : "")}
               placeholder={isUK ? "GB00 BANK 0000 0000 0000 00" : "IBAN"}
-              className={cn(inputCls, "font-mono")}
+              className={cn(inputCls, "font-mono", ibanError && "border-red-400 focus:ring-red-400")}
             />
+            {ibanError && <p className="text-xs text-red-600 mt-1">{ibanError}</p>}
           </Field>
         ) : (
           <Field label="Account number">
@@ -624,7 +647,7 @@ function BankTransferForm({
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <FormActions
-          canSubmit={!!holderName && (!!iban || !!accountNumber) && !!swiftBic}
+          canSubmit={!!holderName && (!!iban || !!accountNumber) && !!swiftBic && !ibanError}
           saving={saving}
           onSave={save}
           onCancel={onCancel}

@@ -17,9 +17,15 @@ const openSans = Open_Sans({
 export const metadata: Metadata = {
   title: "SwiftRun for Business",
   description: "Manage your SwiftRun store, orders, products and team",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SwiftRun Biz",
+  },
   icons: {
-    icon: "/icon.png",
-    apple: "/icon.png",
+    icon: "/swiftrun-icon.png",
+    apple: "/swiftrun-icon.png",
   },
 };
 

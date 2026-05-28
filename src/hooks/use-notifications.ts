@@ -8,6 +8,10 @@ import {
   query,
   where,
   limit,
+  getDocs,
+  setDoc,
+  doc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { fmtCurrency } from "@/lib/currency";
@@ -20,7 +24,8 @@ export type NotifType =
   | "order_cancelled"
   | "order_driver_arrived"
   | "stock_low"
-  | "stock_out";
+  | "stock_out"
+  | "rating_new";
 
 export interface AppNotification {
   id: string;
@@ -57,6 +62,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
 
   const ordersReady = useRef(false);
   const productsReady = useRef(false);
+  const reviewsReady = useRef(false);
   const prevStocks = useRef<Map<string, { stock: number; available: boolean }>>(new Map());
   const readIds = useRef<Set<string>>(new Set());
 
@@ -64,6 +70,36 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
   useEffect(() => {
     readIds.current = loadReadIds();
   }, []);
+
+  // Load existing notifications from Firestore on mount
+  useEffect(() => {
+    if (!shopId) return;
+    const q = query(
+      collection(db, "Shops", shopId, "businessNotifications"),
+      orderBy("ts", "desc"),
+      limit(60)
+    );
+    getDocs(q).then((snap) => {
+      const loaded: AppNotification[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          type: data.type as NotifType,
+          title: data.title as string,
+          subtitle: data.subtitle as string,
+          ts: data.ts as number,
+          read: readIds.current.has(d.id),
+        };
+      });
+      if (loaded.length > 0) {
+        setNotifications((prev) => {
+          const existingIds = new Set(prev.map((n) => n.id));
+          const fresh = loaded.filter((n) => !existingIds.has(n.id));
+          return [...prev, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 60);
+        });
+      }
+    }).catch(() => {});
+  }, [shopId]);
 
   const push = useCallback(
     (notif: Omit<AppNotification, "read">) => {
@@ -74,9 +110,16 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
       });
       if (!alreadyRead) {
         _sendEmail(notif, shopEmail);
+        if (shopId) {
+          setDoc(
+            doc(db, "Shops", shopId, "businessNotifications", notif.id),
+            { type: notif.type, title: notif.title, subtitle: notif.subtitle, ts: notif.ts, createdAt: serverTimestamp() },
+            { merge: true }
+          ).catch(() => {});
+        }
       }
     },
-    [shopEmail]
+    [shopEmail, shopId]
   );
 
   // ── Orders stream ──────────────────────────────────────────────────────
@@ -102,7 +145,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         const amt = fmtCurrency(d.total ?? 0, shopCurrency);
 
         if (change.type === "added") {
-          push({ id: `new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} — ${amt}`, ts: Date.now() });
+          push({ id: `order_new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} — ${amt}`, ts: Date.now() });
         } else if (change.type === "modified") {
           if (d.status === "delivered") {
             push({ id: `done_${id}`, type: "order_delivered", title: "Order Completed", subtitle: `#${num} — ${amt}`, ts: Date.now() });
@@ -166,6 +209,40 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     });
 
     return () => { unsub(); productsReady.current = false; };
+  }, [shopId, push]);
+
+  // ── Reviews stream ─────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!shopId) return;
+    reviewsReady.current = false;
+
+    const q = query(
+      collection(db, "Shops", shopId, "reviews"),
+      orderBy("createdAt", "desc"),
+      limit(20)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        if (!reviewsReady.current) return;
+        if (change.type !== "added") return;
+        const d = change.doc.data();
+        const id = change.doc.id;
+        const rating = (d.rating as number) || 0;
+        const reviewer = (d.userName as string) || (d.name as string) || "Customer";
+        push({
+          id: `rating_new_${id}`,
+          type: "rating_new",
+          title: "New Review",
+          subtitle: `${rating}/5 stars — ${reviewer}`,
+          ts: Date.now(),
+        });
+      });
+      reviewsReady.current = true;
+    });
+
+    return () => { unsub(); reviewsReady.current = false; };
   }, [shopId, push]);
 
   // ── Mark all read ──────────────────────────────────────────────────────

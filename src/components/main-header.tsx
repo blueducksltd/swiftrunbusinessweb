@@ -18,6 +18,7 @@ function notifStyle(type: NotifType) {
     case "order_driver_arrived": return { bg: "bg-purple-50", stroke: "#7c3aed" };
     case "stock_low":            return { bg: "bg-amber-50",  stroke: "#d97706" };
     case "stock_out":            return { bg: "bg-red-50",    stroke: "#dc2626" };
+    case "rating_new":           return { bg: "bg-yellow-50", stroke: "#ca8a04" };
   }
 }
 
@@ -37,6 +38,9 @@ function NotifIcon({ type }: { type: NotifType }) {
       )}
       {(type === "stock_low" || type === "stock_out") && (
         <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>
+      )}
+      {type === "rating_new" && (
+        <><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></>
       )}
     </svg>
   );

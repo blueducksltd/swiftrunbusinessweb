@@ -8,6 +8,7 @@ const COLORS: Record<string, string> = {
   order_driver_arrived: "#7c3aed",
   stock_low: "#d97706",
   stock_out: "#dc2626",
+  rating_new: "#ca8a04",
 };
 
 const ICONS: Record<string, string> = {
@@ -17,6 +18,7 @@ const ICONS: Record<string, string> = {
   order_driver_arrived: "🚗",
   stock_low: "⚠️",
   stock_out: "🚫",
+  rating_new: "⭐",
 };
 
 export async function POST(req: NextRequest) {
