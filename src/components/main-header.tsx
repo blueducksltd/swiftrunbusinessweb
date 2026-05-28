@@ -46,10 +46,29 @@ function NotifIcon({ type }: { type: NotifType }) {
   );
 }
 
-function NotifRow({ n }: { n: AppNotification }) {
+function notifHref(type: NotifType): string {
+  switch (type) {
+    case "order_new":
+    case "order_delivered":
+    case "order_cancelled":
+    case "order_driver_arrived":
+      return "/orders";
+    case "stock_low":
+    case "stock_out":
+      return "/products";
+    case "rating_new":
+      return "/reviews";
+  }
+}
+
+function NotifRow({ n, onClose }: { n: AppNotification; onClose: () => void }) {
   const { bg } = notifStyle(n.type);
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors ${!n.read ? "bg-blue-50/40" : ""}`}>
+    <Link
+      href={notifHref(n.type)}
+      onClick={onClose}
+      className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors no-underline ${!n.read ? "bg-blue-50/40" : ""}`}
+    >
       <div className={`size-8 rounded-full grid place-items-center shrink-0 mt-0.5 ${bg}`}>
         <NotifIcon type={n.type} />
       </div>
@@ -61,7 +80,7 @@ function NotifRow({ n }: { n: AppNotification }) {
         <span className="text-xs text-slate-400">{timeAgo(n.ts)}</span>
         {!n.read && <span className="size-2 rounded-full bg-blue-500" />}
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -306,7 +325,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                       <p className="text-xs text-slate-300 mt-1">New orders and stock alerts will appear here</p>
                     </div>
                   ) : (
-                    notifications.map((n) => <NotifRow key={n.id} n={n} />)
+                    notifications.map((n) => <NotifRow key={n.id} n={n} onClose={() => setNotifOpen(false)} />)
                   )}
                 </div>
               </div>
