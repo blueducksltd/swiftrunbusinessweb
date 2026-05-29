@@ -337,7 +337,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                       <p className="text-xs text-slate-300 mt-1">New orders and stock alerts will appear here</p>
                     </div>
                   ) : (
-                    notifications.map((n) => (
+                    notifications.slice(0, 5).map((n) => (
                       <NotifRow
                         key={n.id}
                         n={n}

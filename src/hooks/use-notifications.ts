@@ -128,7 +128,6 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         query(
           collection(db, "ErrandOrders"),
           where("shopId", "==", shopId),
-          orderBy("createdAt", "desc"),
           limit(30)
         )
       );
@@ -136,7 +135,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         const data = d.data();
         const ts: number =
           data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
-        if (ts <= since) break;
+        if (ts <= since) continue;
         const num = data.orderNumber ?? d.id.slice(0, 6).toUpperCase();
         const amt = fmtCurrency(data.total ?? 0, shopCurrency);
         batch.set(notifDoc(shopId, `order_new_${d.id}`), {
@@ -221,7 +220,6 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     const q = query(
       collection(db, "ErrandOrders"),
       where("shopId", "==", shopId),
-      orderBy("createdAt", "desc"),
       limit(50)
     );
     const unsub = onSnapshot(q, (snap) => {
