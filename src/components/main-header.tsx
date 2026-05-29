@@ -61,25 +61,31 @@ function notifHref(type: NotifType): string {
   }
 }
 
-function NotifRow({ n, onClose }: { n: AppNotification; onClose: () => void }) {
+function NotifRow({
+  n,
+  onClose,
+  onMarkRead,
+}: {
+  n: AppNotification;
+  onClose: () => void;
+  onMarkRead: (id: string) => void;
+}) {
   const { bg } = notifStyle(n.type);
   return (
     <Link
       href={notifHref(n.type)}
-      onClick={onClose}
+      onClick={() => { onMarkRead(n.id); onClose(); }}
       className={`flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors no-underline ${!n.read ? "bg-blue-50/40" : ""}`}
     >
       <div className={`size-8 rounded-full grid place-items-center shrink-0 mt-0.5 ${bg}`}>
         <NotifIcon type={n.type} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className={`text-xs text-slate-800 truncate ${!n.read ? "font-black" : "font-bold"}`}>{n.title}</p>
+        <p className={`text-xs text-slate-800 truncate ${!n.read ? "font-black" : "font-semibold"}`}>{n.title}</p>
         <p className="text-xs text-slate-400 mt-0.5 truncate">{n.subtitle}</p>
+        <p className="text-xs text-slate-300 mt-0.5">{timeAgo(n.ts)}</p>
       </div>
-      <div className="flex flex-col items-end gap-1.5 shrink-0">
-        <span className="text-xs text-slate-400">{timeAgo(n.ts)}</span>
-        {!n.read && <span className="size-2 rounded-full bg-blue-500" />}
-      </div>
+      {!n.read && <span className="size-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
     </Link>
   );
 }
@@ -108,7 +114,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [allOrders, setAllOrders] = useState<ErrandOrder[]>([]);
   const searchWrapRef = useRef<HTMLDivElement>(null);
 
-  const { notifications, unreadCount, markAllRead } = useNotifications(shopId.current, shopEmail, shopCurrency);
+  const { notifications, unreadCount, markAllRead, markRead } = useNotifications(shopId.current, shopEmail, shopCurrency);
 
   // Subscribe to products + orders for search
   useEffect(() => {
@@ -161,7 +167,6 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
   function openNotifications() {
     setNotifOpen(true);
-    markAllRead();
   }
 
   return (
@@ -303,18 +308,25 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-black text-slate-900">Notifications</p>
-                    {notifications.length > 0 && (
-                      <span className="text-xs text-slate-400">({notifications.length})</span>
+                    {unreadCount > 0 && (
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{unreadCount} new</span>
                     )}
                   </div>
-                  <button onClick={() => setNotifOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {unreadCount > 0 && (
+                      <button onClick={() => markAllRead()} className="text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors">
+                        Mark all read
+                      </button>
+                    )}
+                    <button onClick={() => setNotifOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
                   {notifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 px-6 text-center">
                       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3">
@@ -325,8 +337,25 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                       <p className="text-xs text-slate-300 mt-1">New orders and stock alerts will appear here</p>
                     </div>
                   ) : (
-                    notifications.map((n) => <NotifRow key={n.id} n={n} onClose={() => setNotifOpen(false)} />)
+                    notifications.map((n) => (
+                      <NotifRow
+                        key={n.id}
+                        n={n}
+                        onClose={() => setNotifOpen(false)}
+                        onMarkRead={markRead}
+                      />
+                    ))
                   )}
+                </div>
+
+                <div className="border-t border-slate-100 px-4 py-2.5">
+                  <Link
+                    href="/notifications"
+                    onClick={() => setNotifOpen(false)}
+                    className="block text-center text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    See all notifications
+                  </Link>
                 </div>
               </div>
             )}
