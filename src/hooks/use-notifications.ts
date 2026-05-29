@@ -41,10 +41,10 @@ export interface AppNotification {
 // ── Firestore path helpers ─────────────────────────────────────────────────
 
 const notifsColl = (shopId: string) =>
-  collection(db, "Shops", shopId, "notifications");
+  collection(db, "Shops", shopId, "businessNotifications");
 
 const notifDoc = (shopId: string, id: string) =>
-  doc(db, "Shops", shopId, "notifications", id);
+  doc(db, "Shops", shopId, "businessNotifications", id);
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 

@@ -97,8 +97,8 @@ export default function NotificationsPage() {
     async (after: QueryDocumentSnapshot | null = null) => {
       if (!shopId) return;
       const q = after
-        ? query(collection(db, "Shops", shopId, "notifications"), orderBy("ts", "desc"), startAfter(after), limit(PAGE_SIZE))
-        : query(collection(db, "Shops", shopId, "notifications"), orderBy("ts", "desc"), limit(PAGE_SIZE));
+        ? query(collection(db, "Shops", shopId, "businessNotifications"), orderBy("ts", "desc"), startAfter(after), limit(PAGE_SIZE))
+        : query(collection(db, "Shops", shopId, "businessNotifications"), orderBy("ts", "desc"), limit(PAGE_SIZE));
 
       const snap = await getDocs(q);
       const items: Notif[] = snap.docs.map((d) => ({
@@ -134,7 +134,7 @@ export default function NotificationsPage() {
   }
 
   async function markRead(id: string) {
-    await updateDoc(doc(db, "Shops", shopId, "notifications", id), { read: true }).catch(() => {});
+    await updateDoc(doc(db, "Shops", shopId, "businessNotifications", id), { read: true }).catch(() => {});
     setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
   }
 
@@ -142,13 +142,13 @@ export default function NotificationsPage() {
     const unread = notifs.filter((n) => !n.read);
     if (unread.length === 0) return;
     const batch = writeBatch(db);
-    unread.forEach((n) => batch.update(doc(db, "Shops", shopId, "notifications", n.id), { read: true }));
+    unread.forEach((n) => batch.update(doc(db, "Shops", shopId, "businessNotifications", n.id), { read: true }));
     await batch.commit().catch(() => {});
     setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
   }
 
   async function deleteNotif(id: string) {
-    await deleteDoc(doc(db, "Shops", shopId, "notifications", id)).catch(() => {});
+    await deleteDoc(doc(db, "Shops", shopId, "businessNotifications", id)).catch(() => {});
     setNotifs((prev) => prev.filter((n) => n.id !== id));
   }
 
@@ -156,7 +156,7 @@ export default function NotificationsPage() {
     if (!confirm("Clear all notifications? This cannot be undone.")) return;
     setClearing(true);
     // Delete in batches of 490
-    const snap = await getDocs(collection(db, "Shops", shopId, "notifications")).catch(() => null);
+    const snap = await getDocs(collection(db, "Shops", shopId, "businessNotifications")).catch(() => null);
     if (snap) {
       const chunks: QueryDocumentSnapshot[][] = [];
       for (let i = 0; i < snap.docs.length; i += 490) chunks.push(snap.docs.slice(i, i + 490));
