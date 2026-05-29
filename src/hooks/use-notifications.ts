@@ -39,12 +39,15 @@ export interface AppNotification {
 }
 
 // ── Firestore path helpers ─────────────────────────────────────────────────
+// Collection: Shops/{shopId}/notifications
+// If Firestore rules block this, update rules to:
+//   match /Shops/{shopId}/notifications/{id} { allow read, write: if request.auth != null; }
 
 const notifsColl = (shopId: string) =>
-  collection(db, "Shops", shopId, "businessNotifications");
+  collection(db, "Shops", shopId, "notifications");
 
 const notifDoc = (shopId: string, id: string) =>
-  doc(db, "Shops", shopId, "businessNotifications", id);
+  doc(db, "Shops", shopId, "notifications", id);
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
@@ -55,33 +58,62 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
   const reviewsReady = useRef(false);
   const prevStocks = useRef<Map<string, { stock: number; available: boolean }>>(new Map());
 
-  // ── Real-time bell: last 10 from Shops/{shopId}/notifications ──────────
+  // ── On mount: load last 60 from Firestore into local state ─────────────
+  // Uses getDocs (one-time read) — reliable across security rule variations.
+  // Also subscribes via onSnapshot for real-time updates while tab is open.
 
   useEffect(() => {
     if (!shopId) return;
-    const q = query(notifsColl(shopId), orderBy("ts", "desc"), limit(10));
-    const unsub = onSnapshot(q, (snap) => {
-      setNotifications(
-        snap.docs.map((d) => ({
+
+    const q = query(notifsColl(shopId), orderBy("ts", "desc"), limit(60));
+
+    // Initial load — populates bell immediately
+    getDocs(q)
+      .then((snap) => {
+        const loaded: AppNotification[] = snap.docs.map((d) => ({
           id: d.id,
           type: d.data().type as NotifType,
           title: d.data().title as string,
           subtitle: d.data().subtitle as string,
           ts: d.data().ts as number,
           read: (d.data().read as boolean) ?? false,
-        }))
-      );
-    });
+        }));
+        if (loaded.length > 0) {
+          setNotifications((prev) => {
+            const existingIds = new Set(prev.map((n) => n.id));
+            const fresh = loaded.filter((n) => !existingIds.has(n.id));
+            return [...prev, ...fresh].sort((a, b) => b.ts - a.ts).slice(0, 60);
+          });
+        }
+      })
+      .catch(() => {});
+
+    // Real-time listener — keeps bell current while tab is open
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const live: AppNotification[] = snap.docs.map((d) => ({
+          id: d.id,
+          type: d.data().type as NotifType,
+          title: d.data().title as string,
+          subtitle: d.data().subtitle as string,
+          ts: d.data().ts as number,
+          read: (d.data().read as boolean) ?? false,
+        }));
+        setNotifications(live);
+      },
+      () => {} // silent error — getDocs fallback already populated state
+    );
+
     return () => unsub();
   }, [shopId]);
 
-  // ── Mount sync: backfill orders & reviews from when portal was closed ──
+  // ── Mount sync: backfill orders & reviews that arrived while portal was closed
 
   useEffect(() => {
     if (!shopId) return;
 
     async function sync() {
-      // Find the latest notification ts so we don't re-sync old records
       const latestSnap = await getDocs(
         query(notifsColl(shopId), orderBy("ts", "desc"), limit(1))
       );
@@ -92,7 +124,6 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
       const batch = writeBatch(db);
       let writes = 0;
 
-      // Orders newer than since
       const ordersSnap = await getDocs(
         query(
           collection(db, "ErrandOrders"),
@@ -119,7 +150,6 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         if (++writes >= 490) break;
       }
 
-      // Reviews newer than since
       const reviewsSnap = await getDocs(
         query(
           collection(db, "Shops", shopId, "reviews"),
@@ -152,23 +182,32 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     sync().catch(() => {});
   }, [shopId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Write one notification record to Firestore ─────────────────────────
+  // ── Write notification to Firestore + update local state immediately ────
 
   const push = useCallback(
     (notif: Omit<AppNotification, "read">) => {
-      if (!shopId) return;
-      setDoc(
-        notifDoc(shopId, notif.id),
-        {
-          type: notif.type,
-          title: notif.title,
-          subtitle: notif.subtitle,
-          ts: notif.ts,
-          read: false,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      ).catch(() => {});
+      // Update local state immediately (no wait for Firestore round-trip)
+      setNotifications((prev) => {
+        if (prev.some((n) => n.id === notif.id)) return prev;
+        return [{ ...notif, read: false }, ...prev].slice(0, 60);
+      });
+
+      // Persist to Firestore
+      if (shopId) {
+        setDoc(
+          notifDoc(shopId, notif.id),
+          {
+            type: notif.type,
+            title: notif.title,
+            subtitle: notif.subtitle,
+            ts: notif.ts,
+            read: false,
+            createdAt: serverTimestamp(),
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+
       _sendEmail(notif, shopEmail);
     },
     [shopId, shopEmail]
@@ -280,10 +319,11 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     return () => { unsub(); reviewsReady.current = false; };
   }, [shopId, push]);
 
-  // ── Mark all read (batch update in Firestore) ──────────────────────────
+  // ── Mark all read ──────────────────────────────────────────────────────
 
   const markAllRead = useCallback(async () => {
-    if (!shopId || notifications.length === 0) return;
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (!shopId) return;
     const unread = notifications.filter((n) => !n.read);
     if (unread.length === 0) return;
     const batch = writeBatch(db);
@@ -291,12 +331,16 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
     await batch.commit().catch(() => {});
   }, [shopId, notifications]);
 
-  // ── Mark single notification read ──────────────────────────────────────
+  // ── Mark single read ───────────────────────────────────────────────────
 
   const markRead = useCallback(
     (id: string) => {
-      if (!shopId) return;
-      updateDoc(notifDoc(shopId, id), { read: true }).catch(() => {});
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+      if (shopId) {
+        updateDoc(notifDoc(shopId, id), { read: true }).catch(() => {});
+      }
     },
     [shopId]
   );
@@ -308,10 +352,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
 
 // ── Email helper ───────────────────────────────────────────────────────────
 
-async function _sendEmail(
-  notif: Omit<AppNotification, "read">,
-  shopEmail: string
-) {
+async function _sendEmail(notif: Omit<AppNotification, "read">, shopEmail: string) {
   try {
     await fetch("/api/notify", {
       method: "POST",
