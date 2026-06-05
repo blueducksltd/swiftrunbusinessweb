@@ -36,6 +36,8 @@ export default function DashboardPage() {
   const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
   const [shopTypeName, setShopTypeName] = useState("");
   const [shopCurrency, setShopCurrency] = useState("NGN");
+  const [shopRating, setShopRating] = useState(0);
+  const [shopReviewCount, setShopReviewCount] = useState(0);
   const shopName = getShopName();
   const isOwner = getRole() === "owner";
 
@@ -46,6 +48,8 @@ export default function DashboardPage() {
     const unsubShop = subscribeToShop(shopId, (shop) => {
       setShopTypeName(shop?.shopTypeName ?? "");
       setShopCurrency(shop?.currency ?? "NGN");
+      setShopRating(Number(shop?.rating ?? 0));
+      setShopReviewCount(Number(shop?.totalRatings ?? 0));
     });
     const unsubOrders = subscribeToOrders(shopId, (orders) => {
       const live = orders
@@ -90,6 +94,11 @@ export default function DashboardPage() {
           {shopTypeName && (
             <p className="mt-1 text-sm font-semibold text-slate-500">Shop type: {shopTypeName}</p>
           )}
+          <p className="mt-1 text-sm font-semibold text-amber-600">
+            {shopReviewCount > 0
+              ? `Rating: ${shopRating.toFixed(1)} (${shopReviewCount} ${shopReviewCount === 1 ? "review" : "reviews"})`
+              : "No ratings yet"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors">

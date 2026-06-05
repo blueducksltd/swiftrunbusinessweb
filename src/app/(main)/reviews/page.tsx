@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
 import { cn } from "@/lib/cn";
 import { db } from "@/lib/firebase";
 import { getShopId } from "@/lib/session";
@@ -49,8 +49,7 @@ export default function ReviewsPage() {
       orderBy("createdAt", "desc"),
     );
     const unsub = onSnapshot(q, (snap) => {
-      setReviews(
-        snap.docs.map((d) => {
+      const nextReviews = snap.docs.map((d) => {
           const data = d.data();
           return {
             id: d.id,
@@ -59,8 +58,19 @@ export default function ReviewsPage() {
             comment: (data.comment as string) || "",
             updatedAt: data.updatedAt ?? null,
           };
-        }),
-      );
+        });
+      setReviews(nextReviews);
+      const validRatings = nextReviews
+        .map((r) => Number(r.rating))
+        .filter((rating) => Number.isFinite(rating) && rating > 0);
+      const avg = validRatings.length
+        ? Math.round((validRatings.reduce((sum, rating) => sum + rating, 0) / validRatings.length) * 100) / 100
+        : 0;
+      setDoc(doc(db, "Shops", shopId), {
+        rating: avg,
+        totalRatings: validRatings.length,
+        updatedAt: serverTimestamp(),
+      }, { merge: true }).catch(() => {});
       setLoading(false);
     });
     return () => unsub();
