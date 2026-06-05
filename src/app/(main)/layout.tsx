@@ -5,10 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { getRole, getShopId, setSession } from "@/lib/session";
+import { clearSession, getRole, getShopId, setSession } from "@/lib/session";
 import { MainHeader } from "@/components/main-header";
 import { Sidebar } from "@/components/sidebar";
 import { useFcmToken } from "@/hooks/use-fcm-token";
+
+function shopCanOperate(data: Record<string, unknown> | undefined): boolean {
+  if (!data) return false;
+  const isActive = data.isActive !== false;
+  const status = String(data.status ?? "").trim().toLowerCase();
+  return isActive && (status === "" || status === "active");
+}
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -36,16 +43,29 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           const snap = await getDocs(query(collection(db, "Shops"), where("ownerEmail", "==", email)));
           if (snap.empty) {
             await auth.signOut();
+            clearSession();
             router.replace("/login");
             return;
           }
           const shopDoc = snap.docs[0];
+          if (!shopCanOperate(shopDoc.data())) {
+            await auth.signOut();
+            clearSession();
+            router.replace("/login");
+            return;
+          }
           resolvedShopId = shopDoc.id;
           setSession(resolvedShopId, shopDoc.data().name ?? "My Shop", "owner");
         } else {
           // Session exists — always re-verify role from Firestore so old sessions get fixed
           const shopSnap = await getDoc(doc(db, "Shops", resolvedShopId));
           const shopData = shopSnap.data();
+          if (!shopSnap.exists() || !shopCanOperate(shopData)) {
+            await auth.signOut();
+            clearSession();
+            router.replace("/login");
+            return;
+          }
           const shopName = shopData?.name ?? "My Shop";
           const ownerEmail = (shopData?.ownerEmail ?? "").toLowerCase().trim();
 
@@ -54,6 +74,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           } else {
             // Direct doc lookup using uid — no index needed
             const memberSnap = await getDoc(doc(db, "Shops", resolvedShopId, "members", user.uid));
+            if (!memberSnap.exists() || memberSnap.data()?.isActive === false) {
+              await auth.signOut();
+              clearSession();
+              router.replace("/login");
+              return;
+            }
             const role = memberSnap.exists() ? (memberSnap.data()?.role ?? "Staff") : "Staff";
             setSession(resolvedShopId, shopName, role);
           }

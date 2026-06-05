@@ -25,6 +25,19 @@ type DisplayOrder = {
   orderCode: string;
   receiverAddress: string;
   items: ErrandOrder["items"];
+  createdAt: ErrandOrder["createdAt"];
+  acceptedAt: ErrandOrder["acceptedAt"];
+  driverArrivedAt: ErrandOrder["driverArrivedAt"];
+  preparingAt: ErrandOrder["preparingAt"];
+  verifiedAt: ErrandOrder["verifiedAt"];
+  readyAt: ErrandOrder["readyAt"];
+  pickedUpAt: ErrandOrder["pickedUpAt"];
+  deliveredAt: ErrandOrder["deliveredAt"];
+  cancelledAt: ErrandOrder["cancelledAt"];
+  cancelReason: string;
+  cancelledBy: string;
+  cancelledByRole: string;
+  cancelledByName: string;
 };
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -99,6 +112,66 @@ function fmtDate(ts: unknown): string {
   return "—";
 }
 
+function fmtTime(ts: unknown): string {
+  if (!ts) return "—";
+  if (typeof ts === "object" && ts !== null && "seconds" in ts) {
+    return new Date((ts as { seconds: number }).seconds * 1000).toLocaleTimeString("en-GB", {
+      hour: "2-digit", minute: "2-digit",
+    });
+  }
+  return "—";
+}
+
+function fmtDateTime(ts: unknown): string {
+  if (!ts) return "—";
+  if (typeof ts === "object" && ts !== null && "seconds" in ts) {
+    return new Date((ts as { seconds: number }).seconds * 1000).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return "—";
+}
+
+function cancellationActorRole(order: DisplayOrder): string {
+  const actor = (order.cancelledByRole || order.cancelledBy || "").toLowerCase();
+  const reason = (order.cancelReason || "").toLowerCase();
+  if (actor === "store" || reason.includes("store")) return "store";
+  if (actor === "driver") return "driver";
+  if (actor === "customer" || actor === "user") return "customer";
+  return "";
+}
+
+function cancellationActorLabel(order: DisplayOrder): string {
+  const name = order.cancelledByName.trim();
+  switch (cancellationActorRole(order)) {
+    case "store":
+      return name ? `Store: ${name}` : "Store";
+    case "driver":
+      return name ? `Driver: ${name}` : "Driver";
+    case "customer":
+      return name ? `Customer: ${name}` : "Customer";
+    default:
+      return name || "Unknown";
+  }
+}
+
+function cancellationCopy(order: DisplayOrder): string {
+  switch (cancellationActorRole(order)) {
+    case "store":
+      return "This order was cancelled by you.";
+    case "driver":
+      return "This order was cancelled by the driver.";
+    case "customer":
+      return "This order was cancelled by the customer.";
+    default:
+      return "This order was cancelled.";
+  }
+}
+
 function toDisplay(o: ErrandOrder): DisplayOrder {
   const status = mapStatus(o.status);
   return {
@@ -118,14 +191,27 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     orderCode: o.orderCode ?? "",
     receiverAddress: o.receiverAddress ?? "",
     items: o.items,
+    createdAt: o.createdAt ?? null,
+    acceptedAt: o.acceptedAt ?? null,
+    driverArrivedAt: o.driverArrivedAt ?? null,
+    preparingAt: o.preparingAt ?? null,
+    verifiedAt: o.verifiedAt ?? null,
+    readyAt: o.readyAt ?? null,
+    pickedUpAt: o.pickedUpAt ?? null,
+    deliveredAt: o.deliveredAt ?? null,
+    cancelledAt: o.cancelledAt ?? null,
+    cancelReason: o.cancelReason ?? "",
+    cancelledBy: o.cancelledBy ?? "",
+    cancelledByRole: o.cancelledByRole ?? "",
+    cancelledByName: o.cancelledByName ?? "",
   };
 }
 
-function notifyOrderStatus(customerId: string, driverId: string | null, status: string, shopName: string) {
+function notifyOrderStatus(orderId: string, customerId: string, driverId: string | null, status: string, shopName: string) {
   fetch("/api/errand-notify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ customerId, driverId, status, shopName }),
+    body: JSON.stringify({ orderId, customerId, driverId, status, shopName }),
   }).catch(() => {});
 }
 
@@ -135,6 +221,7 @@ export default function OrdersPage() {
   const [detailOrder, setDetailOrder] = useState<DisplayOrder | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [updating, setUpdating] = useState(false);
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const pendingActionId = useRef<string | null>(null);
@@ -188,7 +275,7 @@ export default function OrdersPage() {
             : o
         )
       );
-      notifyOrderStatus(order.customerId, order.driverId, next, order.shopName);
+      notifyOrderStatus(order.firestoreId, order.customerId, order.driverId, next, order.shopName);
     } finally {
       setUpdating(false);
       setConfirmOpen(false);
@@ -201,21 +288,38 @@ export default function OrdersPage() {
     if (!id) return;
     const order = orders.find((o) => o.firestoreId === id);
     if (!order) return;
+    const reason = rejectReason.trim();
+    if (!reason) return;
 
     setUpdating(true);
     try {
-      await updateOrderStatus(id, "cancelled");
+      await updateOrderStatus(id, "cancelled", {
+        cancelReason: reason,
+        cancelledBy: "store",
+        cancelledByRole: "store",
+        cancelledByName: order.shopName || "Store",
+      });
       setOrders((prev) =>
         prev.map((o) =>
           o.firestoreId === id
-            ? { ...o, status: "Cancelled", firestoreStatus: "cancelled", color: STATUS_COLORS["Cancelled"] }
+            ? {
+                ...o,
+                status: "Cancelled",
+                firestoreStatus: "cancelled",
+                color: STATUS_COLORS["Cancelled"],
+                cancelReason: reason,
+                cancelledBy: "store",
+                cancelledByRole: "store",
+                cancelledByName: order.shopName || "Store",
+              }
             : o
         )
       );
-      notifyOrderStatus(order.customerId, order.driverId, "cancelled", order.shopName);
+      notifyOrderStatus(order.firestoreId, order.customerId, order.driverId, "cancelled", order.shopName);
     } finally {
       setUpdating(false);
       setRejectOpen(false);
+      setRejectReason("");
       pendingRejectId.current = null;
     }
   }
@@ -326,6 +430,11 @@ export default function OrdersPage() {
                   {STEPS.map((step, i) => {
                     const stepIndex = STEPS.indexOf(detailOrder.status as OrderStatus);
                     const active = i <= stepIndex;
+                    const stepTime =
+                      step === "New" ? detailOrder.createdAt :
+                      step === "Preparing" ? detailOrder.preparingAt :
+                      step === "Ready" ? detailOrder.readyAt ?? detailOrder.verifiedAt :
+                      detailOrder.pickedUpAt;
                     return (
                       <div key={step} className="flex items-center gap-1 flex-1">
                         <div className="flex flex-col items-center gap-1 flex-1">
@@ -333,6 +442,7 @@ export default function OrdersPage() {
                             {i + 1}
                           </div>
                           <p className={cn("text-[10px] font-semibold text-center", active ? "text-[#056abf]" : "text-slate-400")}>{step}</p>
+                          <p className="text-[9px] font-semibold text-slate-400 tabular-nums">{active ? fmtTime(stepTime) : "—"}</p>
                         </div>
                         {i < STEPS.length - 1 && (
                           <div className={cn("h-0.5 flex-1 -mt-4 mx-1", active && i < stepIndex ? "bg-[#056abf]" : "bg-slate-200")} />
@@ -344,8 +454,13 @@ export default function OrdersPage() {
               )}
 
               {detailOrder.status === "Cancelled" && (
-                <div className="mb-4 p-3 bg-red-50 rounded-lg">
-                  <p className="text-sm font-bold text-red-600">This order was cancelled.</p>
+                <div className="mb-4 p-3 bg-red-50 rounded-lg space-y-1">
+                  <p className="text-sm font-bold text-red-600">{cancellationCopy(detailOrder)}</p>
+                  <p className="text-xs font-semibold text-red-500">Cancelled by: {cancellationActorLabel(detailOrder)}</p>
+                  {detailOrder.cancelReason && (
+                    <p className="text-xs font-semibold text-red-500">Reason: {detailOrder.cancelReason}</p>
+                  )}
+                  <p className="text-xs font-semibold text-red-400">Cancelled: {fmtDateTime(detailOrder.cancelledAt)}</p>
                 </div>
               )}
 
@@ -473,16 +588,22 @@ export default function OrdersPage() {
             <p className="text-slate-500 text-sm mb-6">
               This will cancel the order and notify the customer. This action cannot be undone.
             </p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for cancelling"
+              className="mb-4 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-red-300 focus:ring-2 focus:ring-red-100"
+            />
             <div className="flex gap-3">
               <button
-                onClick={() => { setRejectOpen(false); pendingRejectId.current = null; }}
+                onClick={() => { setRejectOpen(false); setRejectReason(""); pendingRejectId.current = null; }}
                 className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Go Back
               </button>
               <button
                 onClick={handleReject}
-                disabled={updating}
+                disabled={updating || rejectReason.trim().length === 0}
                 className="flex-1 h-10 rounded-lg bg-red-600 text-white font-bold text-sm hover:bg-red-700 transition-colors disabled:opacity-60"
               >
                 {updating ? "Cancelling…" : "Reject Order"}

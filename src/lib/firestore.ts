@@ -96,10 +96,17 @@ export interface ErrandOrder {
   notes: string;
   createdAt: Timestamp | null;
   acceptedAt: Timestamp | null;
+  driverArrivedAt?: Timestamp | null;
   preparingAt: Timestamp | null;
+  verifiedAt?: Timestamp | null;
   readyAt: Timestamp | null;
   pickedUpAt: Timestamp | null;
   deliveredAt: Timestamp | null;
+  cancelledAt?: Timestamp | null;
+  cancelReason?: string;
+  cancelledBy?: string;
+  cancelledByRole?: string;
+  cancelledByName?: string;
 }
 
 export interface ShopProfile {
@@ -299,10 +306,26 @@ export function subscribeToOrders(
   });
 }
 
-export async function updateOrderStatus(orderId: string, status: ErrandStatus): Promise<void> {
+export async function updateOrderStatus(
+  orderId: string,
+  status: ErrandStatus,
+  options: {
+    cancelReason?: string;
+    cancelledBy?: string;
+    cancelledByRole?: string;
+    cancelledByName?: string;
+  } = {}
+): Promise<void> {
   const updates: Record<string, unknown> = { status };
   if (status === "preparing") updates.preparingAt = serverTimestamp();
   if (status === "ready") updates.readyAt = serverTimestamp();
+  if (status === "cancelled") {
+    updates.cancelledAt = serverTimestamp();
+    updates.cancelReason = options.cancelReason?.trim() || "Cancelled by store";
+    updates.cancelledBy = options.cancelledBy ?? "store";
+    updates.cancelledByRole = options.cancelledByRole ?? "store";
+    updates.cancelledByName = options.cancelledByName ?? "Store";
+  }
   await updateDoc(doc(db, "ErrandOrders", orderId), updates);
 }
 

@@ -9,6 +9,12 @@ import { collection, collectionGroup, query, where, getDocs } from "firebase/fir
 import { auth, db } from "@/lib/firebase";
 import { setSession } from "@/lib/session";
 
+function shopCanOperate(data: Record<string, unknown>): boolean {
+  const isActive = data.isActive !== false;
+  const status = String(data.status ?? "").trim().toLowerCase();
+  return isActive && (status === "" || status === "active");
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
@@ -27,6 +33,11 @@ export default function LoginPage() {
       const ownerSnap = await getDocs(query(collection(db, "Shops"), where("ownerEmail", "==", email)));
       if (!ownerSnap.empty) {
         const shopDoc = ownerSnap.docs[0];
+        if (!shopCanOperate(shopDoc.data())) {
+          await auth.signOut();
+          setError("This store account has been suspended. Please contact SwiftRun support.");
+          return;
+        }
         setSession(shopDoc.id, shopDoc.data().name ?? "");
         router.push("/dashboard");
         return;
@@ -40,7 +51,18 @@ export default function LoginPage() {
           const memberData = memberDoc.data();
           const shopId = memberDoc.ref.parent.parent?.id ?? "";
           const shopDoc = shopId ? await getDocs(query(collection(db, "Shops"), where("__name__", "==", shopId))) : null;
-          const shopName = shopDoc?.docs[0]?.data().name ?? "My Shop";
+          const shopData = shopDoc?.docs[0]?.data();
+          if (!shopData || !shopCanOperate(shopData)) {
+            await auth.signOut();
+            setError("This store account has been suspended. Please contact SwiftRun support.");
+            return;
+          }
+          if (memberData.isActive === false) {
+            await auth.signOut();
+            setError("Your staff account has been suspended. Please contact the shop owner.");
+            return;
+          }
+          const shopName = shopData.name ?? "My Shop";
           setSession(shopId, shopName, memberData.role ?? "Staff");
           router.push("/dashboard");
           return;

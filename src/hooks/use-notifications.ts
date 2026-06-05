@@ -38,6 +38,24 @@ export interface AppNotification {
   read: boolean;
 }
 
+function cancellationActor(data: Record<string, unknown>): string {
+  const role = String(data.cancelledByRole ?? data.cancelledBy ?? "").toLowerCase();
+  const reason = String(data.cancelReason ?? "").toLowerCase();
+  const name = String(data.cancelledByName ?? "").trim();
+  if (role === "store" || reason.includes("store")) return name ? `Store: ${name}` : "Store";
+  if (role === "driver") return name ? `Driver: ${name}` : "Driver";
+  if (role === "customer" || role === "user") return name ? `Customer: ${name}` : "Customer";
+  return name || "Unknown";
+}
+
+function cancellationSubtitle(num: string, amt: string, data: Record<string, unknown>): string {
+  const reason = String(data.cancelReason ?? "").trim();
+  const actor = cancellationActor(data);
+  return reason
+    ? `#${num} - ${amt} - Cancelled by ${actor}. Reason: ${reason}`
+    : `#${num} - ${amt} - Cancelled by ${actor}`;
+}
+
 // ── Firestore path helpers ─────────────────────────────────────────────────
 // Collection: Shops/{shopId}/notifications
 // If Firestore rules block this, update rules to:
@@ -235,7 +253,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
           if (d.status === "delivered") {
             push({ id: `done_${id}`, type: "order_delivered", title: "Order Completed", subtitle: `#${num} — ${amt}`, ts: Date.now() });
           } else if (d.status === "cancelled") {
-            push({ id: `cancel_${id}`, type: "order_cancelled", title: "Order Cancelled", subtitle: `#${num} — ${amt}`, ts: Date.now() });
+            push({ id: `cancel_${id}`, type: "order_cancelled", title: "Order Cancelled", subtitle: cancellationSubtitle(num, amt, d), ts: Date.now() });
           } else if (d.status === "driver_at_shop") {
             push({ id: `arrived_${id}`, type: "order_driver_arrived", title: "Driver Arrived", subtitle: `Driver is at your store for order #${num}`, ts: Date.now() });
           }
