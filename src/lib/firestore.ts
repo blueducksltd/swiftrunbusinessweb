@@ -11,6 +11,7 @@ import {
   limit,
   onSnapshot,
   serverTimestamp,
+  arrayUnion,
   Timestamp,
   type QuerySnapshot,
   type DocumentData,
@@ -25,6 +26,7 @@ export type ProductStatus = "Active" | "Low Stock" | "Out of Stock";
 export interface ProductOption {
   name: string;
   price: number;
+  scope?: "order" | "bundle" | "item";
 }
 
 export interface Product {
@@ -44,6 +46,11 @@ export interface Product {
   stock: number;
   requiredProductIds: string[];
   options: ProductOption[];
+  laundryPricingType?: "bundle" | "per_item";
+  bundleSize?: "small" | "medium" | "large" | "";
+  maxItems?: number | null;
+  includedRule?: string;
+  excludedRule?: string;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
   status?: ProductStatus;
@@ -56,6 +63,11 @@ export type ErrandStatus =
   | "preparing"
   | "ready"
   | "picked_up"
+  | "laundry_picked_up_from_customer"
+  | "laundry_at_store"
+  | "laundry_processing"
+  | "laundry_ready_for_return"
+  | "laundry_picked_up_from_store"
   | "delivered"
   | "cancelled";
 
@@ -71,6 +83,7 @@ export interface OrderItem {
 
 export interface ErrandOrder {
   id: string;
+  orderType?: "errand" | "laundry";
   orderNumber: string;
   orderCode: string;
   customerId: string;
@@ -94,6 +107,15 @@ export interface ErrandOrder {
   pickupLocation: { description: string; latitude: number; longitude: number };
   deliveryLocation: { description: string; latitude: number; longitude: number };
   notes: string;
+  laundryDetails?: {
+    intakeNotes?: Array<{
+      item?: string;
+      action?: string;
+      reason?: string;
+      note?: string;
+      recordedAt?: Timestamp | null;
+    }>;
+  };
   createdAt: Timestamp | null;
   acceptedAt: Timestamp | null;
   driverArrivedAt?: Timestamp | null;
@@ -194,6 +216,11 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
       stock: data.stock ?? 0,
       requiredProductIds: data.requiredProductIds ?? [],
       options: data.options ?? [],
+      laundryPricingType: data.laundryPricingType ?? undefined,
+      bundleSize: data.bundleSize ?? "",
+      maxItems: data.maxItems ?? null,
+      includedRule: data.includedRule ?? "",
+      excludedRule: data.excludedRule ?? "",
       createdAt: data.createdAt ?? null,
       updatedAt: data.updatedAt ?? null,
       status: productStatus(data.stock ?? 0, data.isAvailable ?? true),
@@ -314,11 +341,28 @@ export async function updateOrderStatus(
     cancelledBy?: string;
     cancelledByRole?: string;
     cancelledByName?: string;
+    intakeNote?: string;
   } = {}
 ): Promise<void> {
   const updates: Record<string, unknown> = { status };
   if (status === "preparing") updates.preparingAt = serverTimestamp();
   if (status === "ready") updates.readyAt = serverTimestamp();
+  if (status === "laundry_processing") {
+    updates.laundryProcessingAt = serverTimestamp();
+    const note = options.intakeNote?.trim();
+    if (note) {
+      updates["laundryDetails.intakeNotes"] = arrayUnion({
+        note,
+        action: "Recorded during laundry intake",
+        reason: "Store intake review",
+        recordedAt: new Date(),
+      });
+    }
+  }
+  if (status === "laundry_ready_for_return") {
+    updates.laundryReadyForReturnAt = serverTimestamp();
+    updates.readyAt = serverTimestamp();
+  }
   if (status === "cancelled") {
     updates.cancelledAt = serverTimestamp();
     updates.cancelReason = options.cancelReason?.trim() || "Cancelled by store";

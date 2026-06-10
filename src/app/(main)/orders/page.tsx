@@ -10,6 +10,7 @@ type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
 
 type DisplayOrder = {
   firestoreId: string;
+  orderType: "errand" | "laundry";
   firestoreStatus: ErrandStatus;
   id: string;
   product: string;
@@ -38,6 +39,7 @@ type DisplayOrder = {
   cancelledBy: string;
   cancelledByRole: string;
   cancelledByName: string;
+  laundryIntakeNotes: NonNullable<ErrandOrder["laundryDetails"]>["intakeNotes"];
 };
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -78,21 +80,31 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
 
 function mapStatus(s: ErrandStatus): OrderStatus {
   if (s === "cancelled") return "Cancelled";
-  if (s === "picked_up" || s === "delivered") return "Picked Up";
-  if (s === "ready") return "Ready";
-  if (s === "preparing") return "Preparing";
+  if (s === "picked_up" || s === "delivered" || s === "laundry_picked_up_from_store") return "Picked Up";
+  if (s === "ready" || s === "laundry_ready_for_return") return "Ready";
+  if (s === "preparing" || s === "laundry_processing" || s === "laundry_at_store") return "Preparing";
   // pending, accepted, driver_at_shop → store hasn't acted yet
   return "New";
 }
 
 // What Firestore status the store should set next when they click the action button.
-function nextFirestoreStatus(current: ErrandStatus): ErrandStatus | null {
+function nextFirestoreStatus(current: ErrandStatus, orderType: "errand" | "laundry" = "errand"): ErrandStatus | null {
+  if (orderType === "laundry") {
+    if (current === "laundry_at_store") return "laundry_processing";
+    if (current === "laundry_processing") return "laundry_ready_for_return";
+    return null;
+  }
   if (current === "accepted" || current === "driver_at_shop") return "preparing";
   if (current === "preparing") return "ready";
   return null; // no store action for pending / ready / picked_up / delivered / cancelled
 }
 
-function actionLabel(current: ErrandStatus): string | null {
+function actionLabel(current: ErrandStatus, orderType: "errand" | "laundry" = "errand"): string | null {
+  if (orderType === "laundry") {
+    if (current === "laundry_at_store") return "Confirm Intake & Start Processing";
+    if (current === "laundry_processing") return "Mark Ready for Return";
+    return null;
+  }
   if (current === "accepted" || current === "driver_at_shop") return "Start Preparing";
   if (current === "preparing") return "Mark Ready";
   return null;
@@ -176,6 +188,7 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
   const status = mapStatus(o.status);
   return {
     firestoreId: o.id,
+    orderType: o.orderType === "laundry" ? "laundry" : "errand",
     firestoreStatus: o.status,
     id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
     product: o.items.map((i) => i.name).join(", ") || "—",
@@ -204,6 +217,7 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     cancelledBy: o.cancelledBy ?? "",
     cancelledByRole: o.cancelledByRole ?? "",
     cancelledByName: o.cancelledByName ?? "",
+    laundryIntakeNotes: o.laundryDetails?.intakeNotes ?? [],
   };
 }
 
@@ -222,6 +236,7 @@ export default function OrdersPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [intakeNote, setIntakeNote] = useState("");
   const [updating, setUpdating] = useState(false);
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const pendingActionId = useRef<string | null>(null);
@@ -262,12 +277,14 @@ export default function OrdersPage() {
     if (!id) return;
     const order = orders.find((o) => o.firestoreId === id);
     if (!order) return;
-    const next = nextFirestoreStatus(order.firestoreStatus);
+    const next = nextFirestoreStatus(order.firestoreStatus, order.orderType);
     if (!next) return;
 
     setUpdating(true);
     try {
-      await updateOrderStatus(id, next);
+      await updateOrderStatus(id, next, {
+        intakeNote: order.orderType === "laundry" ? intakeNote : undefined,
+      });
       setOrders((prev) =>
         prev.map((o) =>
           o.firestoreId === id
@@ -279,6 +296,7 @@ export default function OrdersPage() {
     } finally {
       setUpdating(false);
       setConfirmOpen(false);
+      setIntakeNote("");
       pendingActionId.current = null;
     }
   }
@@ -484,6 +502,24 @@ export default function OrdersPage() {
                 </div>
               </div>
 
+              {detailOrder.orderType === "laundry" && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg space-y-1.5">
+                  <p className="text-xs font-black uppercase text-blue-700">Laundry order</p>
+                  <p className="text-xs font-semibold text-blue-700">
+                    Confirm intake before processing. Extra or excluded unpaid items should be recorded and returned unprocessed.
+                  </p>
+                  {detailOrder.laundryIntakeNotes?.length ? (
+                    <div className="pt-2 space-y-1">
+                      {detailOrder.laundryIntakeNotes.map((note, i) => (
+                        <p key={i} className="text-xs font-semibold text-blue-800">
+                          {note.note || `${note.item || "Item"}: ${note.action || "Recorded"}`}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
               {detailOrder.items.length > 1 && (
                 <div className="mb-4 p-3 bg-slate-50 rounded-lg space-y-1.5">
                   {detailOrder.items.map((item, i) => (
@@ -508,7 +544,7 @@ export default function OrdersPage() {
               >
                 Close
               </button>
-              {detailOrder.firestoreStatus !== "cancelled" && detailOrder.firestoreStatus !== "delivered" && detailOrder.firestoreStatus !== "picked_up" && (
+              {detailOrder.firestoreStatus !== "cancelled" && detailOrder.firestoreStatus !== "delivered" && detailOrder.firestoreStatus !== "picked_up" && detailOrder.firestoreStatus !== "laundry_picked_up_from_store" && (
                 <button
                   onClick={() => {
                     pendingRejectId.current = detailOrder.firestoreId;
@@ -520,16 +556,17 @@ export default function OrdersPage() {
                   Reject
                 </button>
               )}
-              {actionLabel(detailOrder.firestoreStatus) && (
+              {actionLabel(detailOrder.firestoreStatus, detailOrder.orderType) && (
                 <button
                   onClick={() => {
                     pendingActionId.current = detailOrder.firestoreId;
+                    setIntakeNote("");
                     setConfirmOpen(true);
                     setDetailOrder(null);
                   }}
                   className="flex-1 h-10 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
                 >
-                  {actionLabel(detailOrder.firestoreStatus)}
+                  {actionLabel(detailOrder.firestoreStatus, detailOrder.orderType)}
                 </button>
               )}
             </div>
@@ -550,15 +587,34 @@ export default function OrdersPage() {
             <p className="text-slate-500 text-sm mb-6">
               {(() => {
                 const order = orders.find((o) => o.firestoreId === pendingActionId.current);
-                const lbl = order ? actionLabel(order.firestoreStatus) : null;
+                const lbl = order ? actionLabel(order.firestoreStatus, order.orderType) : null;
+                if (lbl === "Confirm Intake & Start Processing") {
+                  return "Confirm the driver has handed over the laundry and start processing.";
+                }
+                if (lbl === "Mark Ready for Return") {
+                  return "Mark this laundry order ready for the same driver to return it to the customer.";
+                }
                 return lbl === "Start Preparing"
                   ? "Mark this order as being prepared."
                   : "Mark this order as ready for pickup.";
               })()}
             </p>
+            {(() => {
+              const order = orders.find((o) => o.firestoreId === pendingActionId.current);
+              const showIntake = order?.orderType === "laundry" && order.firestoreStatus === "laundry_at_store";
+              if (!showIntake) return null;
+              return (
+                <textarea
+                  value={intakeNote}
+                  onChange={(e) => setIntakeNote(e.target.value)}
+                  placeholder="Optional intake note, for example: Extra duvet found, not processed, returned with order."
+                  className="mb-4 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+              );
+            })()}
             <div className="flex gap-3">
               <button
-                onClick={() => { setConfirmOpen(false); pendingActionId.current = null; }}
+                onClick={() => { setConfirmOpen(false); setIntakeNote(""); pendingActionId.current = null; }}
                 className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancel
