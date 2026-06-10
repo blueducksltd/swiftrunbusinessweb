@@ -1053,7 +1053,7 @@ export default function ProductsPage() {
       {/* Product Detail Modal */}
       {detailProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="font-black text-slate-900">Product Detail</h2>
               <button onClick={() => setDetailProduct(null)} className="text-slate-400 hover:text-slate-600">
