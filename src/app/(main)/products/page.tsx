@@ -45,6 +45,7 @@ type LaundryFormState = {
   maxItems: string;
   includedRule: string;
   excludedRule: string;
+  turnaroundHours: string;
 };
 
 type OptionFormState = {
@@ -69,6 +70,7 @@ const EMPTY_LAUNDRY_FORM: LaundryFormState = {
   maxItems: "",
   includedRule: "",
   excludedRule: "",
+  turnaroundHours: "48",
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -199,6 +201,7 @@ export default function ProductsPage() {
       maxItems: isBundle ? parseInt(state.maxItems) || null : null,
       includedRule: state.includedRule.trim(),
       excludedRule: state.excludedRule.trim(),
+      turnaroundHours: parseInt(state.turnaroundHours) || null,
     };
   }
 
@@ -209,6 +212,7 @@ export default function ProductsPage() {
       maxItems: product.maxItems?.toString() ?? "",
       includedRule: product.includedRule ?? "",
       excludedRule: product.excludedRule ?? "",
+      turnaroundHours: product.turnaroundHours?.toString() ?? "48",
     };
   }
 
@@ -290,6 +294,21 @@ export default function ProductsPage() {
             />
           </div>
         )}
+        <div>
+          <label className="block text-xs font-bold text-slate-600 mb-1.5">Turnaround time (hours)</label>
+          <input
+            type="number"
+            min="1"
+            max="336"
+            value={state.turnaroundHours}
+            onChange={(e) => setState((p) => ({ ...p, turnaroundHours: e.target.value }))}
+            placeholder="e.g. 48"
+            className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+          />
+          <p className="mt-1 text-[11px] font-semibold text-slate-400">
+            How long after intake this service is ready. Customers see this before ordering; the slowest item in an order sets its promise.
+          </p>
+        </div>
         <div>
           <label className="block text-xs font-bold text-slate-600 mb-1.5">Included rule</label>
           <textarea

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/cn";
-import { subscribeToOrders, subscribeToShop, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
+import { subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
 
@@ -26,6 +26,7 @@ type DisplayOrder = {
   orderCode: string;
   receiverAddress: string;
   items: ErrandOrder["items"];
+  laundryCustomerPhotoUrls: string[];
   createdAt: ErrandOrder["createdAt"];
   acceptedAt: ErrandOrder["acceptedAt"];
   driverArrivedAt: ErrandOrder["driverArrivedAt"];
@@ -40,6 +41,9 @@ type DisplayOrder = {
   cancelledByRole: string;
   cancelledByName: string;
   laundryIntakeNotes: NonNullable<ErrandOrder["laundryDetails"]>["intakeNotes"];
+  laundryTurnaroundHours: number | null;
+  expectedReadyAt: NonNullable<ErrandOrder["laundryDetails"]>["expectedReadyAt"];
+  readyTimeAdjustments: NonNullable<NonNullable<ErrandOrder["laundryDetails"]>["readyTimeAdjustments"]>;
 };
 
 const STATUS_STYLES: Record<OrderStatus, string> = {
@@ -204,6 +208,7 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     orderCode: o.orderCode ?? "",
     receiverAddress: o.receiverAddress ?? "",
     items: o.items,
+    laundryCustomerPhotoUrls: o.laundryDetails?.customerPhotoUrls ?? o.customerLaundryPhotoUrls ?? [],
     createdAt: o.createdAt ?? null,
     acceptedAt: o.acceptedAt ?? null,
     driverArrivedAt: o.driverArrivedAt ?? null,
@@ -218,8 +223,43 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     cancelledByRole: o.cancelledByRole ?? "",
     cancelledByName: o.cancelledByName ?? "",
     laundryIntakeNotes: o.laundryDetails?.intakeNotes ?? [],
+    laundryTurnaroundHours: o.laundryDetails?.turnaroundHours ?? null,
+    expectedReadyAt: o.laundryDetails?.expectedReadyAt ?? null,
+    readyTimeAdjustments: o.laundryDetails?.readyTimeAdjustments ?? [],
   };
 }
+
+/**
+ * Default ready time for the intake dialog: now + turnaround, nudged out of
+ * late-night hours (a promise of "ready 2:30 AM" reads as a mistake).
+ */
+function defaultReadyTime(turnaroundHours: number | null): Date {
+  const d = new Date(Date.now() + (turnaroundHours ?? 48) * 3600_000);
+  if (d.getHours() >= 21) d.setHours(9 + 24, 0, 0, 0);
+  else if (d.getHours() < 8) d.setHours(9, 0, 0, 0);
+  return d;
+}
+
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtReadyAt(ts: { toDate?: () => Date } | null | undefined): string {
+  const d = ts?.toDate?.();
+  if (!d) return "";
+  return d.toLocaleString(undefined, {
+    weekday: "short", day: "numeric", month: "short",
+    hour: "numeric", minute: "2-digit",
+  });
+}
+
+const EXTENSION_REASONS = [
+  "Equipment issue",
+  "Power outage",
+  "High order volume",
+  "Item needs special care",
+];
 
 function notifyOrderStatus(orderId: string, customerId: string, driverId: string | null, status: string, shopName: string) {
   fetch("/api/errand-notify", {
@@ -237,6 +277,10 @@ export default function OrdersPage() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [intakeNote, setIntakeNote] = useState("");
+  const [readyTimeInput, setReadyTimeInput] = useState("");
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendTime, setExtendTime] = useState("");
+  const [extendReason, setExtendReason] = useState(EXTENSION_REASONS[0]);
   const [updating, setUpdating] = useState(false);
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const pendingActionId = useRef<string | null>(null);
@@ -282,8 +326,12 @@ export default function OrdersPage() {
 
     setUpdating(true);
     try {
+      const isIntake = order.orderType === "laundry" && next === "laundry_processing";
       await updateOrderStatus(id, next, {
         intakeNote: order.orderType === "laundry" ? intakeNote : undefined,
+        expectedReadyAt: isIntake
+          ? new Date(readyTimeInput || toLocalInputValue(defaultReadyTime(order.laundryTurnaroundHours)))
+          : undefined,
       });
       setOrders((prev) =>
         prev.map((o) =>
@@ -297,7 +345,25 @@ export default function OrdersPage() {
       setUpdating(false);
       setConfirmOpen(false);
       setIntakeNote("");
+      setReadyTimeInput("");
       pendingActionId.current = null;
+    }
+  }
+
+  async function handleExtendReadyTime() {
+    const order = detailOrder;
+    if (!order || !extendTime) return;
+    const prev = order.expectedReadyAt?.toDate?.() ?? null;
+    const next = new Date(extendTime);
+    if (prev && next <= prev) return;
+    setUpdating(true);
+    try {
+      await adjustReadyTime(order.firestoreId, prev, next, extendReason, "processing");
+      setExtendOpen(false);
+      setExtendTime("");
+      setDetailOrder(null);
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -508,6 +574,22 @@ export default function OrdersPage() {
                   <p className="text-xs font-semibold text-blue-700">
                     Confirm intake before processing. Extra or excluded unpaid items should be recorded and returned unprocessed.
                   </p>
+                  {detailOrder.laundryCustomerPhotoUrls.length > 0 && (
+                    <div className="pt-2">
+                      <p className="mb-2 text-xs font-black uppercase text-blue-700">Customer pickup photos</p>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {detailOrder.laundryCustomerPhotoUrls.map((url, i) => (
+                          <a key={`${url}-${i}`} href={url} target="_blank" rel="noreferrer" className="shrink-0">
+                            <img
+                              src={url}
+                              alt={`Laundry pickup photo ${i + 1}`}
+                              className="h-20 w-20 rounded-lg border border-blue-100 object-cover"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {detailOrder.laundryIntakeNotes?.length ? (
                     <div className="pt-2 space-y-1">
                       {detailOrder.laundryIntakeNotes.map((note, i) => (
@@ -517,6 +599,83 @@ export default function OrdersPage() {
                       ))}
                     </div>
                   ) : null}
+                  {detailOrder.expectedReadyAt && (
+                    <div className="pt-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-black uppercase text-blue-700">Ready by</p>
+                        <p className="text-sm font-black text-blue-900">{fmtReadyAt(detailOrder.expectedReadyAt)}</p>
+                      </div>
+                      {detailOrder.firestoreStatus === "laundry_processing" &&
+                        detailOrder.expectedReadyAt.toDate?.() < new Date() && (
+                          <p className="mt-1 rounded bg-red-100 px-2 py-1 text-xs font-black text-red-700">
+                            OVERDUE — customer was promised this time
+                          </p>
+                        )}
+                      {detailOrder.readyTimeAdjustments.filter((a) => a.stage === "processing").length > 0 && (
+                        <p className="mt-1 text-xs font-semibold text-blue-800">
+                          Extended once ({detailOrder.readyTimeAdjustments[detailOrder.readyTimeAdjustments.length - 1]?.reason ?? ""}). No further extensions.
+                        </p>
+                      )}
+                      {detailOrder.firestoreStatus === "laundry_processing" &&
+                        detailOrder.readyTimeAdjustments.filter((a) => a.stage === "processing").length === 0 && (
+                          <div className="mt-2">
+                            {!extendOpen ? (
+                              <button
+                                onClick={() => {
+                                  const prev = detailOrder.expectedReadyAt?.toDate?.() ?? new Date();
+                                  setExtendTime(toLocalInputValue(new Date(prev.getTime() + 2 * 3600_000)));
+                                  setExtendOpen(true);
+                                }}
+                                className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition-colors"
+                              >
+                                Extend ready time (once)
+                              </button>
+                            ) : (
+                              <div className="space-y-2 rounded-lg border border-blue-200 bg-white p-2">
+                                <input
+                                  type="datetime-local"
+                                  value={extendTime}
+                                  min={toLocalInputValue(detailOrder.expectedReadyAt?.toDate?.() ?? new Date())}
+                                  max={toLocalInputValue(new Date(
+                                    (detailOrder.expectedReadyAt?.toDate?.()?.getTime() ?? Date.now()) +
+                                    Math.min(24, (detailOrder.laundryTurnaroundHours ?? 48) / 2) * 3600_000
+                                  ))}
+                                  onChange={(e) => setExtendTime(e.target.value)}
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300"
+                                />
+                                <select
+                                  value={extendReason}
+                                  onChange={(e) => setExtendReason(e.target.value)}
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-blue-300 cursor-pointer"
+                                >
+                                  {EXTENSION_REASONS.map((r) => (
+                                    <option key={r}>{r}</option>
+                                  ))}
+                                </select>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setExtendOpen(false)}
+                                    className="flex-1 rounded-lg border border-slate-200 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={handleExtendReadyTime}
+                                    disabled={updating || !extendTime}
+                                    className="flex-1 rounded-lg bg-[#056abf] py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                    {updating ? "Saving…" : "Save new time"}
+                                  </button>
+                                </div>
+                                <p className="text-[10px] font-semibold text-slate-400">
+                                  The customer is notified of the change. Only one extension is allowed per order.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -604,12 +763,30 @@ export default function OrdersPage() {
               const showIntake = order?.orderType === "laundry" && order.firestoreStatus === "laundry_at_store";
               if (!showIntake) return null;
               return (
-                <textarea
-                  value={intakeNote}
-                  onChange={(e) => setIntakeNote(e.target.value)}
-                  placeholder="Optional intake note, for example: Extra duvet found, not processed, returned with order."
-                  className="mb-4 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
+                <>
+                  <textarea
+                    value={intakeNote}
+                    onChange={(e) => setIntakeNote(e.target.value)}
+                    placeholder="Optional intake note, for example: Extra duvet found, not processed, returned with order."
+                    className="mb-4 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <div className="mb-4 text-left">
+                    <label className="mb-1.5 block text-xs font-bold text-slate-600">
+                      Ready for return by
+                      {order.laundryTurnaroundHours ? ` (default: ${order.laundryTurnaroundHours} hrs)` : ""}
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={readyTimeInput || toLocalInputValue(defaultReadyTime(order.laundryTurnaroundHours))}
+                      min={toLocalInputValue(new Date())}
+                      onChange={(e) => setReadyTimeInput(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                    />
+                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                      The customer sees this promise. You can extend it once later if something goes wrong.
+                    </p>
+                  </div>
+                </>
               );
             })()}
             <div className="flex gap-3">

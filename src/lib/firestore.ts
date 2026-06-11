@@ -51,6 +51,7 @@ export interface Product {
   maxItems?: number | null;
   includedRule?: string;
   excludedRule?: string;
+  turnaroundHours?: number | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
   status?: ProductStatus;
@@ -107,13 +108,24 @@ export interface ErrandOrder {
   pickupLocation: { description: string; latitude: number; longitude: number };
   deliveryLocation: { description: string; latitude: number; longitude: number };
   notes: string;
+  customerLaundryPhotoUrls?: string[];
   laundryDetails?: {
+    customerPhotoUrls?: string[];
     intakeNotes?: Array<{
       item?: string;
       action?: string;
       reason?: string;
       note?: string;
       recordedAt?: Timestamp | null;
+    }>;
+    turnaroundHours?: number;
+    expectedReadyAt?: Timestamp | null;
+    readyTimeAdjustments?: Array<{
+      previousAt?: Timestamp | null;
+      newAt?: Timestamp | null;
+      reason?: string;
+      stage?: string;
+      adjustedAt?: Timestamp | null;
     }>;
   };
   createdAt: Timestamp | null;
@@ -221,6 +233,7 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
       maxItems: data.maxItems ?? null,
       includedRule: data.includedRule ?? "",
       excludedRule: data.excludedRule ?? "",
+      turnaroundHours: data.turnaroundHours ?? null,
       createdAt: data.createdAt ?? null,
       updatedAt: data.updatedAt ?? null,
       status: productStatus(data.stock ?? 0, data.isAvailable ?? true),
@@ -342,6 +355,7 @@ export async function updateOrderStatus(
     cancelledByRole?: string;
     cancelledByName?: string;
     intakeNote?: string;
+    expectedReadyAt?: Date;
   } = {}
 ): Promise<void> {
   const updates: Record<string, unknown> = { status };
@@ -349,6 +363,9 @@ export async function updateOrderStatus(
   if (status === "ready") updates.readyAt = serverTimestamp();
   if (status === "laundry_processing") {
     updates.laundryProcessingAt = serverTimestamp();
+    if (options.expectedReadyAt) {
+      updates["laundryDetails.expectedReadyAt"] = options.expectedReadyAt;
+    }
     const note = options.intakeNote?.trim();
     if (note) {
       updates["laundryDetails.intakeNotes"] = arrayUnion({
@@ -371,6 +388,30 @@ export async function updateOrderStatus(
     updates.cancelledByName = options.cancelledByName ?? "Store";
   }
   await updateDoc(doc(db, "ErrandOrders", orderId), updates);
+}
+
+/**
+ * Adjust a laundry order's expected ready time. Writes the new time and an
+ * audit entry; never deletes previous adjustments. The page enforces the
+ * one-extension-per-order policy and the cap before calling this.
+ */
+export async function adjustReadyTime(
+  orderId: string,
+  previousAt: Date | null,
+  newAt: Date,
+  reason: string,
+  stage: "intake" | "processing"
+): Promise<void> {
+  await updateDoc(doc(db, "ErrandOrders", orderId), {
+    "laundryDetails.expectedReadyAt": newAt,
+    "laundryDetails.readyTimeAdjustments": arrayUnion({
+      previousAt,
+      newAt,
+      reason,
+      stage,
+      adjustedAt: new Date(),
+    }),
+  });
 }
 
 // ── Shop Profile ───────────────────────────────────────────────────────────
