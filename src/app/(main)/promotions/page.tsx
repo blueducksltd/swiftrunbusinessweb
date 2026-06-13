@@ -5,7 +5,9 @@ import { cn } from "@/lib/cn";
 import { getShopId, getRole } from "@/lib/session";
 import {
   adsAvailableForShop,
+  deleteAd,
   setAdPaused,
+  updateAdText,
   subscribeToAdsConfig,
   subscribeToMyAds,
   subscribeToProducts,
@@ -33,6 +35,27 @@ function fmtCost(amount: number, currency: string) {
   return `${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
 }
 
+function timeLeft(endsAt: { toDate?: () => Date } | null | undefined): string {
+  const end = endsAt?.toDate?.();
+  if (!end) return "";
+  const ms = end.getTime() - Date.now();
+  if (ms <= 0) return "ended";
+  const days = Math.floor(ms / 86_400_000);
+  const hrs = Math.floor((ms % 86_400_000) / 3_600_000);
+  const mins = Math.floor((ms % 3_600_000) / 60_000);
+  if (days >= 1) return `${days}d ${hrs}h left`;
+  if (hrs >= 1) return `${hrs}h ${mins}m left`;
+  return `${mins}m left`;
+}
+
+function expiryLabel(endsAt: { toDate?: () => Date } | null | undefined): string {
+  const end = endsAt?.toDate?.();
+  if (!end) return "";
+  return end.toLocaleString(undefined, {
+    weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+  });
+}
+
 export default function PromotionsPage() {
   const shopId = getShopId() ?? "";
   const isOwner = getRole() === "owner";
@@ -55,6 +78,33 @@ export default function PromotionsPage() {
   const [payMethod, setPayMethod] = useState<"balance" | "card">("balance");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [editAd, setEditAd] = useState<BusinessAd | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editSubtitle, setEditSubtitle] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [busyAd, setBusyAd] = useState(false);
+
+  async function saveEdit() {
+    if (!editAd || busyAd) return;
+    setBusyAd(true);
+    try {
+      await updateAdText(editAd.id, editTitle, editSubtitle);
+      setEditAd(null);
+    } finally {
+      setBusyAd(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteId || busyAd) return;
+    setBusyAd(true);
+    try {
+      await deleteAd(deleteId);
+      setDeleteId(null);
+    } finally {
+      setBusyAd(false);
+    }
+  }
 
   useEffect(() => {
     if (!shopId) return;
@@ -268,26 +318,101 @@ export default function PromotionsPage() {
                 <p className="text-xs text-slate-500 mt-0.5">
                   {ad.targetType === "product" ? "Product ad" : "Store ad"} · {ad.days} day{ad.days === 1 ? "" : "s"} ·{" "}
                   {fmtCost(ad.amount, ad.currency)}
-                  {ad.endsAt ? ` · ends ${ad.endsAt.toDate().toLocaleDateString()}` : ""}
                 </p>
+                {(ad.status === "active" || ad.status === "paused") && ad.endsAt && (
+                  <p className="text-xs font-semibold text-[#056abf] mt-0.5">
+                    {ad.status === "active" ? `${timeLeft(ad.endsAt)} · ` : ""}expires {expiryLabel(ad.endsAt)}
+                  </p>
+                )}
                 <p className="text-xs text-slate-400 mt-0.5">
                   {ad.impressions ?? 0} views · {ad.clicks ?? 0} clicks
                   {ad.status === "rejected" && ad.rejectReason ? ` · Rejected: ${ad.rejectReason}` : ""}
                   {adminPaused ? " · Paused by SwiftRun" : ""}
                 </p>
               </div>
-              {(ad.status === "active" || (ad.status === "paused" && !adminPaused)) && (
+              <div className="flex items-center gap-2">
+                {(ad.status === "active" || (ad.status === "paused" && !adminPaused)) && (
+                  <button
+                    onClick={() => setAdPaused(ad.id, ad.status === "active")}
+                    className="h-9 px-4 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    {ad.status === "active" ? "Pause" : "Resume"}
+                  </button>
+                )}
+                {ad.status !== "rejected" && ad.status !== "expired" && (
+                  <button
+                    onClick={() => { setEditAd(ad); setEditTitle(ad.title); setEditSubtitle(ad.subtitle ?? ""); }}
+                    className="h-9 px-4 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
-                  onClick={() => setAdPaused(ad.id, ad.status === "active")}
-                  className="h-9 px-4 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  onClick={() => setDeleteId(ad.id)}
+                  className="h-9 px-4 rounded-lg border border-red-200 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors"
                 >
-                  {ad.status === "active" ? "Pause" : "Resume"}
+                  Delete
                 </button>
-              )}
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* Edit Ad Modal */}
+      {editAd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="font-black text-slate-900">Edit Ad</h2>
+              <button onClick={() => setEditAd(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">Ad title</label>
+                <input
+                  value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={50}
+                  className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">Short subtitle</label>
+                <input
+                  value={editSubtitle} onChange={(e) => setEditSubtitle(e.target.value)} maxLength={70}
+                  className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf]"
+                />
+              </div>
+              <p className="text-[11px] font-semibold text-slate-400">
+                Only the text can be edited. To change the image, duration or product, place a new ad.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setEditAd(null)} className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+                <button onClick={saveEdit} disabled={busyAd || !editTitle.trim()} className="flex-1 h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-60">
+                  {busyAd ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm text-center p-8">
+            <h3 className="text-lg font-black text-slate-900 mb-2">Delete this ad?</h3>
+            <p className="text-slate-500 text-sm mb-6">
+              This removes the ad and frees your ad slot. Any fee already paid is not refunded.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteId(null)} className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmDelete} disabled={busyAd} className="flex-1 h-10 rounded-lg bg-red-600 text-white font-bold text-sm hover:bg-red-700 disabled:opacity-60">
+                {busyAd ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Ad Modal */}
       {createOpen && (

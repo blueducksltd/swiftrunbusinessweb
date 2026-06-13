@@ -499,6 +499,21 @@ export async function setAdPaused(adId: string, paused: boolean): Promise<void> 
   });
 }
 
+/** Edit an ad's text. Title/subtitle only — duration, target and banner
+ *  affect billing/review and are not editable in place. */
+export async function updateAdText(adId: string, title: string, subtitle: string): Promise<void> {
+  await updateDoc(doc(db, "BusinessAds", adId), {
+    title: title.trim(),
+    subtitle: subtitle.trim(),
+  });
+}
+
+/** Delete an ad, freeing the business's ad slot. The charge already made is
+ *  not refunded. */
+export async function deleteAd(adId: string): Promise<void> {
+  await deleteDoc(doc(db, "BusinessAds", adId));
+}
+
 // ── Shop Profile ───────────────────────────────────────────────────────────
 
 export function subscribeToShop(
