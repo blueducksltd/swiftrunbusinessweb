@@ -43,6 +43,7 @@ export default function PromotionsPage() {
   const [ads, setAds] = useState<BusinessAd[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [fin, setFin] = useState<{ withdrawable: number } | null>(null);
+  const [notice, setNotice] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [targetType, setTargetType] = useState<"product" | "store">("product");
@@ -74,6 +75,30 @@ export default function PromotionsPage() {
     if (payMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setPayMethod("card");
     if (payMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setPayMethod("balance");
   }, [cfg, payMethod]);
+
+  // Returning from a card-payment gateway: verify and finalize the ad.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("ad_cancel")) {
+      setNotice("Payment cancelled — your ad was not created.");
+      window.history.replaceState({}, "", "/promotions");
+      return;
+    }
+    const ref = params.get("ad_ref");
+    if (!ref) return;
+    const sessionId = params.get("session_id") ?? "";
+    fetch("/api/ads/pay-verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reference: ref, session_id: sessionId }),
+    })
+      .then((r) => r.json())
+      .then((d) => setNotice(d.ok
+        ? "Payment received — your ad is now live."
+        : (d.reason ?? "We could not confirm your payment.")))
+      .catch(() => setNotice("We could not confirm your payment."))
+      .finally(() => window.history.replaceState({}, "", "/promotions"));
+  }, []);
 
   const countryCode = (shop?.countryCode ?? shop?.isoCode ?? "").toUpperCase();
   const available = adsAvailableForShop(cfg, countryCode);
@@ -122,13 +147,33 @@ export default function PromotionsPage() {
       if (bannerFile) {
         bannerUrl = await uploadProductImage(shopId, bannerFile);
       }
+      const adBody = {
+        shopId, targetType, productId: targetType === "product" ? productId : "",
+        title: title.trim(), subtitle: subtitle.trim(), bannerUrl, days,
+        paymentMethod: payMethod,
+      };
+
+      if (payMethod === "card") {
+        // Card: get a gateway checkout URL from Django and hand off. The ad
+        // is created only after the payment verifies on return.
+        const res = await fetch("/api/ads/pay-init", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...adBody, email: shop?.email ?? shop?.ownerEmail ?? "" }),
+        });
+        const data = await res.json();
+        if (!data.ok || !data.url) {
+          setError(data.reason ?? "Could not start card payment.");
+          return;
+        }
+        window.location.href = data.url; // off to Paystack/Stripe
+        return;
+      }
+
       const res = await fetch("/api/ads/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopId, targetType, productId: targetType === "product" ? productId : "",
-          title: title.trim(), subtitle: subtitle.trim(), bannerUrl, days, paymentMethod: payMethod,
-        }),
+        body: JSON.stringify(adBody),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -163,6 +208,12 @@ export default function PromotionsPage() {
 
   return (
     <>
+      {notice && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm font-semibold text-blue-800">
+          <span>{notice}</span>
+          <button onClick={() => setNotice("")} className="text-blue-400 hover:text-blue-600">✕</button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-slate-900">Promotions</h1>
