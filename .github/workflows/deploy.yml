@@ -15,6 +15,10 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          # GitHub runners intermittently time out reaching the VPS on :22;
+          # a longer handshake window absorbs most of those blips.
+          timeout: 60s
+          command_timeout: 20m
           script: |
             set -e
             cd /var/www/swiftrunbusinessweb
