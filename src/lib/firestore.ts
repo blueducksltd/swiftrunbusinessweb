@@ -414,6 +414,87 @@ export async function adjustReadyTime(
   });
 }
 
+// ── Sponsored ads ──────────────────────────────────────────────────────────
+
+export interface AdsConfig {
+  enabled: boolean;
+  requiresApproval: boolean;
+  maxActiveAds: number;
+  maxAdsPerBusiness: number;
+  activeCountries: string[];
+  pricing: Record<string, { daily: number; weekly: number; currency: string }>;
+}
+
+export type AdStatus =
+  | "draft" | "pending_review" | "active" | "paused" | "rejected" | "expired";
+
+export interface BusinessAd {
+  id: string;
+  shopId: string;
+  shopName: string;
+  countryCode: string;
+  state: string;
+  targetType: "product" | "store";
+  productId?: string;
+  productImageUrl?: string;
+  title: string;
+  subtitle: string;
+  bannerUrl: string;
+  status: AdStatus;
+  businessEnabled: boolean;
+  pausedBy?: string;
+  rejectReason?: string;
+  days: number;
+  amount: number;
+  currency: string;
+  startsAt: Timestamp | null;
+  endsAt: Timestamp | null;
+  impressions: number;
+  clicks: number;
+  createdAt: Timestamp | null;
+}
+
+export function subscribeToAdsConfig(callback: (cfg: AdsConfig | null) => void) {
+  return onSnapshot(doc(db, "AdsConfig", "config"), (snap) => {
+    if (!snap.exists()) return callback(null);
+    const d = snap.data();
+    callback({
+      enabled: d.enabled === true,
+      requiresApproval: d.requiresApproval !== false,
+      maxActiveAds: d.maxActiveAds ?? 10,
+      maxAdsPerBusiness: d.maxAdsPerBusiness ?? 1,
+      activeCountries: d.activeCountries ?? [],
+      pricing: d.pricing ?? {},
+    });
+  }, () => callback(null));
+}
+
+/** Ads availability for one shop: feature on AND shop's country allowed AND priced. */
+export function adsAvailableForShop(cfg: AdsConfig | null, countryCode?: string): boolean {
+  if (!cfg || !cfg.enabled) return false;
+  const cc = (countryCode ?? "").toUpperCase();
+  if (!cc) return false;
+  if (cfg.activeCountries.length && !cfg.activeCountries.includes(cc)) return false;
+  return Boolean(cfg.pricing[cc]);
+}
+
+export function subscribeToMyAds(shopId: string, callback: (ads: BusinessAd[]) => void) {
+  const q = query(collection(db, "BusinessAds"), where("shopId", "==", shopId));
+  return onSnapshot(q, (snap) => {
+    const ads = snap.docs.map((d) => ({ id: d.id, ...d.data() } as BusinessAd));
+    ads.sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+    callback(ads);
+  }, () => callback([]));
+}
+
+/** Business-side pause/resume. Only flips between active and paused. */
+export async function setAdPaused(adId: string, paused: boolean): Promise<void> {
+  await updateDoc(doc(db, "BusinessAds", adId), {
+    businessEnabled: !paused,
+    status: paused ? "paused" : "active",
+  });
+}
+
 // ── Shop Profile ───────────────────────────────────────────────────────────
 
 export function subscribeToShop(

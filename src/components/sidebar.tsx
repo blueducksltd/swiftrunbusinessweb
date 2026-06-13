@@ -8,7 +8,14 @@ import { signOut } from "firebase/auth";
 import { cn } from "@/lib/cn";
 import { auth } from "@/lib/firebase";
 import { clearSession, getRole, getShopId } from "@/lib/session";
-import { subscribeToProducts, type Product } from "@/lib/firestore";
+import {
+  adsAvailableForShop,
+  subscribeToAdsConfig,
+  subscribeToProducts,
+  subscribeToShop,
+  type AdsConfig,
+  type Product,
+} from "@/lib/firestore";
 
 type NavItem = {
   label: string;
@@ -119,7 +126,13 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const router = useRouter();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [updates, setUpdates] = useState<Product[]>([]);
+  const [adsConfig, setAdsConfig] = useState<AdsConfig | null>(null);
+  const [shopCountry, setShopCountry] = useState("");
   const isOwner = getRole() === "owner";
+  // Layer 1 of the ads protection: the menu item only exists while the admin
+  // has the feature enabled for this shop's country. Layers 2 and 3 live in
+  // the promotions page and the /api/ads/create route.
+  const adsOn = adsAvailableForShop(adsConfig, shopCountry);
 
   useEffect(() => {
     const shopId = getShopId();
@@ -128,7 +141,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
       const sorted = [...products].sort((a, b) => a.stock - b.stock).slice(0, 3);
       setUpdates(sorted);
     });
-    return () => unsub();
+    const unsubCfg = subscribeToAdsConfig(setAdsConfig);
+    const unsubShop = subscribeToShop(shopId, (shop) => {
+      setShopCountry(shop?.countryCode ?? shop?.isoCode ?? "");
+    });
+    return () => { unsub(); unsubCfg(); unsubShop(); };
   }, []);
 
   return (
@@ -146,7 +163,22 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-5 space-y-0.5">
-        {navItems.filter((item) => !item.ownerOnly || isOwner).map((item) => {
+        {[
+          ...navItems,
+          ...(adsOn
+            ? [{
+                label: "Promotions",
+                href: "/promotions",
+                ownerOnly: true,
+                icon: (
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 11l18-5v12L3 14v-3z" />
+                    <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+                  </svg>
+                ),
+              } as NavItem]
+            : []),
+        ].filter((item) => !item.ownerOnly || isOwner).map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link
