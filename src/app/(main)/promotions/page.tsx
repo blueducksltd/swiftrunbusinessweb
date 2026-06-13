@@ -73,6 +73,20 @@ export default function PromotionsPage() {
     return weeks * pricing.weekly + rest * pricing.daily;
   }, [pricing, days]);
 
+  // Live preview: uploaded image wins, else the product photo (product ads),
+  // else the brand gradient — exactly how the customer app renders it.
+  const bannerPreviewUrl = useMemo(
+    () => (bannerFile ? URL.createObjectURL(bannerFile) : ""),
+    [bannerFile],
+  );
+  useEffect(
+    () => () => { if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl); },
+    [bannerPreviewUrl],
+  );
+  const selectedProduct = products.find((p) => p.id === productId);
+  const previewImage =
+    bannerPreviewUrl || (targetType === "product" ? selectedProduct?.imageUrl ?? "" : "");
+
   const slotsUsed = ads.filter((a) =>
     ["pending_review", "active", "paused"].includes(a.status)
   ).length;
@@ -275,6 +289,51 @@ export default function PromotionsPage() {
                   placeholder="One line shown under the title"
                   className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf]"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">Preview</label>
+                <div
+                  className="relative w-full overflow-hidden rounded-xl border border-slate-200"
+                  style={{
+                    aspectRatio: "16 / 6",
+                    backgroundImage: previewImage
+                      ? `url(${previewImage})`
+                      : "linear-gradient(135deg, #134E8F, #0E7490)",
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                  }}
+                >
+                  {/* scrim */}
+                  <div className="absolute inset-0" style={{
+                    background: "linear-gradient(90deg, rgba(0,0,0,0.6), rgba(0,0,0,0.15))",
+                  }} />
+                  <span className="absolute right-2 top-2 rounded bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    Sponsored
+                  </span>
+                  <div className="absolute left-3 top-3 right-3">
+                    <p className="text-sm font-black leading-tight text-white line-clamp-2">
+                      {title || "Your ad title"}
+                    </p>
+                    {subtitle && (
+                      <p className="mt-0.5 text-xs text-white/90 line-clamp-1">{subtitle}</p>
+                    )}
+                  </div>
+                  <div className="absolute bottom-2 left-3 right-3 flex items-center gap-1.5">
+                    {shop?.logoUrl && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={shop.logoUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
+                    )}
+                    <span className="text-xs font-bold text-white line-clamp-1">{shop?.name ?? ""}</span>
+                  </div>
+                </div>
+                <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                  This is how your ad appears in the app. {previewImage ? "" : (
+                    targetType === "product"
+                      ? "Pick a product to use its photo, or upload your own banner below."
+                      : "Upload a banner below, or it shows your store branding."
+                  )}
+                </p>
               </div>
 
               <div>
