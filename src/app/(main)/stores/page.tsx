@@ -69,6 +69,9 @@ export default function SalesPage() {
   const [shopCurrency, setShopCurrency] = useState<string | undefined>(undefined);
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // Server-authoritative balance (gross - commission - payouts - ad spend).
+  // Display matches what the withdrawal endpoint enforces.
+  const [fin, setFin] = useState<{ adSpend: number; paidOut: number; withdrawable: number } | null>(null);
 
   useEffect(() => {
     const shopId = getShopId();
@@ -81,7 +84,16 @@ export default function SalesPage() {
       setCommissionPct(shop?.serviceChargePct ?? 0);
       setShopCurrency(shop?.currency || shop?.currencyCode || undefined);
     });
-    return () => { unsubOrders(); unsubShop(); };
+    let cancelled = false;
+    const loadFin = () => {
+      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled && d?.found) setFin(d); })
+        .catch(() => {});
+    };
+    loadFin();
+    const t = setInterval(loadFin, 60_000);
+    return () => { unsubOrders(); unsubShop(); cancelled = true; clearInterval(t); };
   }, []);
 
   const filtered = useMemo(() =>
@@ -202,8 +214,8 @@ export default function SalesPage() {
           {[
             { label: "Gross Sales",         value: fmtCurrencyCompact(grossSales, shopCurrency) },
             { label: "Platform Commission", value: commissionPct > 0 ? fmtCurrencyCompact(commission, shopCurrency) : "—" },
-            { label: "Net Earnings",        value: commissionPct > 0 ? fmtCurrencyCompact(netEarnings, shopCurrency) : fmtCurrencyCompact(grossSales, shopCurrency) },
-            { label: "Withdrawn Amount",    value: fmtCurrency(0, shopCurrency) },
+            { label: "Ad Spend",            value: fin ? fmtCurrencyCompact(fin.adSpend, shopCurrency) : "—" },
+            { label: "Available to Withdraw", value: fin ? fmtCurrencyCompact(fin.withdrawable, shopCurrency) : fmtCurrencyCompact(netEarnings, shopCurrency) },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-xl border border-slate-200 p-5">
               <p className="text-xs font-semibold text-slate-400 mb-2">{s.label}</p>
