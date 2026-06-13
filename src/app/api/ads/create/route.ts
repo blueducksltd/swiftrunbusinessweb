@@ -12,11 +12,13 @@ const DJANGO_BASE_URL = "https://add.min.swiftrunapp.com";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { shopId, targetType, productId, title, subtitle, bannerUrl, days } =
+    const { shopId, targetType, productId, title, subtitle, bannerUrl, days, paymentMethod } =
       await req.json() as {
         shopId: string; targetType: "product" | "store"; productId?: string;
         title: string; subtitle?: string; bannerUrl?: string; days: number;
+        paymentMethod?: "balance" | "card";
       };
+    const payMethod = paymentMethod === "card" ? "card" : "balance";
 
     if (!shopId || !title?.trim() || !days || days < 1 || days > 90) {
       return NextResponse.json({ ok: false, reason: "Missing or invalid fields" }, { status: 400 });
@@ -79,7 +81,7 @@ export async function POST(req: NextRequest) {
     const chargeRes = await fetch(`${DJANGO_BASE_URL}/api/ads/charge/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shopId, adId: adRef.id, days, countryCode: cc, title: title.trim() }),
+      body: JSON.stringify({ shopId, adId: adRef.id, days, countryCode: cc, title: title.trim(), paymentMethod: payMethod }),
     });
     const charge = await chargeRes.json().catch(() => ({ ok: false }));
     if (!chargeRes.ok || !charge.ok) {

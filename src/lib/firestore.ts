@@ -421,6 +421,8 @@ export interface AdsConfig {
   requiresApproval: boolean;
   maxActiveAds: number;
   maxAdsPerBusiness: number;
+  payWithBalance: boolean;
+  payWithCard: boolean;
   activeCountries: string[];
   pricing: Record<string, { daily: number; weekly: number; currency: string }>;
 }
@@ -463,6 +465,8 @@ export function subscribeToAdsConfig(callback: (cfg: AdsConfig | null) => void) 
       requiresApproval: d.requiresApproval !== false,
       maxActiveAds: d.maxActiveAds ?? 10,
       maxAdsPerBusiness: d.maxAdsPerBusiness ?? 1,
+      payWithBalance: d.payWithBalance !== false,
+      payWithCard: d.payWithCard === true,
       activeCountries: d.activeCountries ?? [],
       pricing: d.pricing ?? {},
     });

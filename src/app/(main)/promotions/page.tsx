@@ -42,6 +42,7 @@ export default function PromotionsPage() {
   const [shop, setShop] = useState<ShopProfile | null>(null);
   const [ads, setAds] = useState<BusinessAd[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [fin, setFin] = useState<{ withdrawable: number } | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [targetType, setTargetType] = useState<"product" | "store">("product");
@@ -50,6 +51,7 @@ export default function PromotionsPage() {
   const [subtitle, setSubtitle] = useState("");
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [days, setDays] = useState(7);
+  const [payMethod, setPayMethod] = useState<"balance" | "card">("balance");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -59,8 +61,19 @@ export default function PromotionsPage() {
     const u2 = subscribeToShop(shopId, setShop);
     const u3 = subscribeToMyAds(shopId, setAds);
     const u4 = subscribeToProducts(shopId, setProducts);
+    fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
+      .then((r) => r.json())
+      .then((d) => { if (d?.found) setFin(d); })
+      .catch(() => {});
     return () => { u1(); u2(); u3(); u4(); };
   }, [shopId]);
+
+  // Default the payment method to whichever the admin has enabled.
+  useEffect(() => {
+    if (!cfg) return;
+    if (payMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setPayMethod("card");
+    if (payMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setPayMethod("balance");
+  }, [cfg, payMethod]);
 
   const countryCode = (shop?.countryCode ?? shop?.isoCode ?? "").toUpperCase();
   const available = adsAvailableForShop(cfg, countryCode);
@@ -114,7 +127,7 @@ export default function PromotionsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shopId, targetType, productId: targetType === "product" ? productId : "",
-          title: title.trim(), subtitle: subtitle.trim(), bannerUrl, days,
+          title: title.trim(), subtitle: subtitle.trim(), bannerUrl, days, paymentMethod: payMethod,
         }),
       });
       const data = await res.json();
@@ -369,9 +382,50 @@ export default function PromotionsPage() {
                 </div>
               </div>
 
+              {cfg && (cfg.payWithBalance || cfg.payWithCard) && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Payment method</label>
+                  <div className="flex gap-2">
+                    {cfg.payWithBalance && (
+                      <button
+                        type="button" onClick={() => setPayMethod("balance")}
+                        className={cn(
+                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
+                          payMethod === "balance"
+                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        Store balance
+                      </button>
+                    )}
+                    {cfg.payWithCard && (
+                      <button
+                        type="button" onClick={() => setPayMethod("card")}
+                        className={cn(
+                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
+                          payMethod === "card"
+                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        Card
+                      </button>
+                    )}
+                  </div>
+                  {fin && payMethod === "balance" && (
+                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                      Available balance: {fmtCost(fin.withdrawable, pricing?.currency ?? "")}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {pricing && cost !== null && (
                 <div className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-600">Total — deducted from payouts</span>
+                  <span className="text-sm font-bold text-slate-600">
+                    Total — {payMethod === "card" ? "charged to card" : "deducted from balance"}
+                  </span>
                   <span className="text-lg font-black text-slate-900">{fmtCost(cost, pricing.currency)}</span>
                 </div>
               )}
