@@ -1,10 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
-import { getOrderStats, subscribeToOrders, subscribeToShop } from "@/lib/firestore";
+import { getOrderStats, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
 import { getRole, getShopId, getShopName } from "@/lib/session";
 
 type LiveOrder = {
@@ -34,6 +34,7 @@ function fmt(n: number, currency?: string): string {
 export default function DashboardPage() {
   const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, cancelled: 0, totalRevenue: 0, avgOrder: 0 });
   const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
+  const [allOrders, setAllOrders] = useState<ErrandOrder[]>([]);
   const [shopTypeName, setShopTypeName] = useState("");
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const [shopRating, setShopRating] = useState(0);
@@ -52,6 +53,7 @@ export default function DashboardPage() {
       setShopReviewCount(Number(shop?.totalRatings ?? 0));
     });
     const unsubOrders = subscribeToOrders(shopId, (orders) => {
+      setAllOrders(orders);
       const live = orders
         .filter((o) => ["pending", "accepted", "driver_at_shop", "preparing", "ready"].includes(o.status))
         .slice(0, 5)
@@ -70,6 +72,33 @@ export default function DashboardPage() {
       unsubOrders();
     };
   }, []);
+
+  // Real revenue over the last 12 months from completed orders, as bar
+  // heights (px) scaled to the busiest month.
+  const revenueBars = useMemo(() => {
+    const now = new Date();
+    const buckets: { label: string; total: number }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      buckets.push({
+        label: d.toLocaleString(undefined, { month: "short", year: "2-digit" }),
+        total: 0,
+      });
+    }
+    for (const o of allOrders) {
+      if (o.status !== "delivered" && o.status !== "picked_up") continue;
+      const created = o.createdAt?.toDate?.();
+      if (!created) continue;
+      const idx = (now.getFullYear() - created.getFullYear()) * 12 +
+        (now.getMonth() - created.getMonth());
+      if (idx >= 0 && idx < 12) buckets[11 - idx].total += o.total ?? 0;
+    }
+    const max = Math.max(1, ...buckets.map((b) => b.total));
+    return buckets.map((b) => ({
+      ...b,
+      height: b.total > 0 ? Math.max(8, Math.round((b.total / max) * 150)) : 4,
+    }));
+  }, [allOrders]);
 
   const statCards = isOwner
     ? [
@@ -144,8 +173,20 @@ export default function DashboardPage() {
               <p className="text-sm font-semibold text-blue-200">Total revenue</p>
               <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue, shopCurrency)}</p>
               <div className="mt-6 flex h-40 items-end gap-2">
-                {[44, 70, 58, 90, 64, 112, 84, 130, 102, 148, 118, 160].map((height, index) => (
-                  <div key={index} className="flex-1 rounded-t bg-blue-400" style={{ height }} />
+                {revenueBars.map((bar, index) => (
+                  <div
+                    key={index}
+                    className="flex-1 rounded-t bg-blue-400"
+                    style={{ height: bar.height }}
+                    title={`${bar.label}: ${fmt(bar.total, shopCurrency)}`}
+                  />
+                ))}
+              </div>
+              <div className="mt-1 flex gap-2 text-[9px] text-blue-300">
+                {revenueBars.map((bar, index) => (
+                  <span key={index} className="flex-1 text-center">
+                    {index % 2 === 0 ? bar.label.split(" ")[0] : ""}
+                  </span>
                 ))}
               </div>
               <p className="mt-4 text-sm text-blue-100">{stats.completed} completed · {stats.cancelled} cancelled</p>
