@@ -185,7 +185,7 @@ export default function DashboardPage() {
               <div className="mt-1 flex gap-2 text-[9px] text-blue-300">
                 {revenueBars.map((bar, index) => (
                   <span key={index} className="flex-1 text-center">
-                    {index % 2 === 0 ? bar.label.split(" ")[0] : ""}
+                    {bar.label.split(" ")[0]}
                   </span>
                 ))}
               </div>
