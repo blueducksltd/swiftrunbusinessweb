@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { fmtCurrency } from "@/lib/currency";
 import { subscribeToShop } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
+import { auth } from "@/lib/firebase";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ export default function PayoutPage() {
   const [shopCurrency, setShopCurrency] = useState("NGN");
   const [shopCountry, setShopCountry] = useState("NG");
   const [financeConfig, setFinanceConfig] = useState<PayoutFinanceConfig | null>(null);
+  const [finance, setFinance] = useState<{ withdrawable: number; currency: string } | null>(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -74,17 +76,42 @@ export default function PayoutPage() {
 
     Promise.all([
       fetch(`/api/admin/payout/account?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
       fetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
     ])
-      .then(([accountData, historyData]) => {
+      .then(([accountData, financeData, historyData]) => {
         setAccount(accountData.account ?? null);
         setFinanceConfig(accountData.financeConfig ?? null);
+        if (financeData?.found) {
+          setFinance({
+            withdrawable: Number(financeData.withdrawable ?? 0),
+            currency: String(financeData.currency ?? ""),
+          });
+        }
         setHistory(historyData.payouts ?? []);
         setLoading(false);
       })
       .catch(() => { setAccount(null); setLoading(false); });
 
     return () => unsub();
+  }, []);
+
+  // Re-pull balance + history after a payout request so the deducted amount and
+  // the new pending entry are reflected without a full reload.
+  const refreshBalance = useCallback(async () => {
+    const shopId = getShopId();
+    if (!shopId) return;
+    const [financeData, historyData] = await Promise.all([
+      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      fetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+    ]);
+    if (financeData?.found) {
+      setFinance({
+        withdrawable: Number(financeData.withdrawable ?? 0),
+        currency: String(financeData.currency ?? ""),
+      });
+    }
+    setHistory(historyData.payouts ?? []);
   }, []);
 
   function handleSaved(acc: PayoutAccount) {
@@ -116,6 +143,18 @@ export default function PayoutPage() {
       </div>
 
       <div className="space-y-6">
+        {/* Available balance + request payout */}
+        {account && finance ? (
+          <WithdrawCard
+            shopId={getShopId() ?? ""}
+            account={account}
+            minimum={financeConfig ? Number(financeConfig.businessMinimumPayout || 0) : 0}
+            withdrawable={finance.withdrawable}
+            currency={finance.currency || shopCurrency}
+            onRequested={refreshBalance}
+          />
+        ) : null}
+
         {/* Current account card */}
         {account && !editing ? (
           <AccountCard account={account} onEdit={() => setEditing(true)} onRemove={handleRemove} />
@@ -137,6 +176,107 @@ export default function PayoutPage() {
         <PayoutHistory records={history} />
       </div>
     </>
+  );
+}
+
+// ── Available balance + request payout ──────────────────────────────────────
+
+function WithdrawCard({
+  shopId,
+  account,
+  minimum,
+  withdrawable,
+  currency,
+  onRequested,
+}: {
+  shopId: string;
+  account: PayoutAccount;
+  minimum: number;
+  withdrawable: number;
+  currency: string;
+  onRequested: () => void | Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const nothing = withdrawable <= 0;
+  const belowMin = !nothing && withdrawable < minimum;
+  const canRequest = account.isVerified && !nothing && !belowMin && !submitting && !done;
+
+  async function request() {
+    setSubmitting(true);
+    setError("");
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Your session expired. Please sign in again.");
+      const token = await user.getIdToken();
+      const r = await fetch("/api/business/request-withdrawal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ shop_id: shopId, currency, amount: withdrawable.toFixed(2) }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Request failed");
+      setDone(true);
+      await onRequested();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="max-w-xl rounded-2xl border border-slate-200 bg-white p-6">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400">Available balance</p>
+      <p className="mt-1 text-3xl font-black text-slate-900">{fmtCurrency(withdrawable, currency)}</p>
+
+      {done ? (
+        <div className="mt-4 flex items-center gap-2 rounded-lg bg-green-50 p-3">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <p className="text-sm font-bold text-green-700">Payout requested. SwiftRun will process it shortly.</p>
+        </div>
+      ) : (
+        <>
+          {!account.isVerified && (
+            <p className="mt-3 text-sm text-amber-700">
+              Your payout account is awaiting verification. You can request a payout once it&apos;s verified.
+            </p>
+          )}
+          {account.isVerified && nothing && (
+            <p className="mt-3 text-sm text-slate-500">You don&apos;t have any earnings available to withdraw yet.</p>
+          )}
+          {account.isVerified && belowMin && (
+            <p className="mt-3 text-sm text-slate-500">
+              You need at least {fmtCurrency(minimum, currency)} to request a payout.
+            </p>
+          )}
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+          <button
+            onClick={request}
+            disabled={!canRequest}
+            className={cn(
+              "mt-4 h-11 w-full rounded-lg text-sm font-bold text-white transition-colors",
+              canRequest ? "bg-[#056abf] hover:bg-blue-700" : "bg-slate-300 cursor-not-allowed"
+            )}
+          >
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="size-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                Requesting…
+              </span>
+            ) : canRequest ? (
+              `Request payout of ${fmtCurrency(withdrawable, currency)}`
+            ) : (
+              "Request payout"
+            )}
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
