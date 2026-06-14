@@ -22,7 +22,7 @@ type PayoutRecord = {
 
 type PayoutAccount = {
   id: number;
-  provider: "PAYSTACK" | "BANK_TRANSFER";
+  provider: "PAYSTACK" | "BANK_TRANSFER" | "STRIPE";
   country: string;
   currency: string;
   isVerified: boolean;
@@ -32,7 +32,9 @@ type PayoutAccount = {
   accountNumber?: string;
   accountName?: string;
   recipientCode?: string;
-  // Bank transfer
+  // Stripe Connect
+  stripeAccountId?: string;
+  // Bank transfer (legacy — being migrated to Stripe)
   accountHolderName?: string;
   iban?: string;
   swiftBic?: string;
@@ -155,20 +157,29 @@ export default function PayoutPage() {
           />
         ) : null}
 
-        {/* Current account card */}
-        {account && !editing ? (
-          <AccountCard account={account} onEdit={() => setEditing(true)} onRemove={handleRemove} />
-        ) : editing || account === null ? (
-          <PayoutForm
+        {/* Current account / setup. Nigeria → Paystack bank form;
+            everywhere else → Stripe Connect onboarding. */}
+        {isNigeria ? (
+          account && account.provider === "PAYSTACK" && !editing ? (
+            <AccountCard account={account} onEdit={() => setEditing(true)} onRemove={handleRemove} />
+          ) : (
+            <div className="max-w-xl">
+              <PaystackForm
+                shopId={getShopId() ?? ""}
+                existing={account && account.provider === "PAYSTACK" ? account : null}
+                onSaved={handleSaved}
+                onCancel={account && account.provider === "PAYSTACK" ? () => setEditing(false) : undefined}
+              />
+            </div>
+          )
+        ) : (
+          <StripeConnectCard
             shopId={getShopId() ?? ""}
-            isNigeria={isNigeria}
-            shopCurrency={shopCurrency}
-            shopCountry={shopCountry}
-            existing={account ?? null}
-            onSaved={handleSaved}
-            onCancel={account ? () => setEditing(false) : undefined}
+            country={shopCountry}
+            account={account ?? null}
+            onChanged={refreshBalance}
           />
-        ) : null}
+        )}
 
         {financeConfig ? <PayoutRulesCard config={financeConfig} /> : null}
 
@@ -422,48 +433,6 @@ function Detail({ label, value, mono }: { label: string; value: string; mono?: b
   );
 }
 
-// ── Payout form ────────────────────────────────────────────────────────────
-
-function PayoutForm({
-  shopId,
-  isNigeria,
-  shopCurrency,
-  shopCountry,
-  existing,
-  onSaved,
-  onCancel,
-}: {
-  shopId: string;
-  isNigeria: boolean;
-  shopCurrency: string;
-  shopCountry: string;
-  existing: PayoutAccount | null;
-  onSaved: (a: PayoutAccount) => void;
-  onCancel?: () => void;
-}) {
-  return (
-    <div className="max-w-xl">
-      {isNigeria ? (
-        <PaystackForm
-          shopId={shopId}
-          existing={existing}
-          onSaved={onSaved}
-          onCancel={onCancel}
-        />
-      ) : (
-        <BankTransferForm
-          shopId={shopId}
-          shopCurrency={shopCurrency}
-          shopCountry={shopCountry}
-          existing={existing}
-          onSaved={onSaved}
-          onCancel={onCancel}
-        />
-      )}
-    </div>
-  );
-}
-
 // ── Paystack form (NGN) ───────────────────────────────────────────────────
 
 function PaystackForm({
@@ -613,195 +582,141 @@ function PaystackForm({
   );
 }
 
-// ── IBAN validation ───────────────────────────────────────────────────────
+// ── Stripe Connect (international) ───────────────────────────────────────────
 
-function validateIban(raw: string): string {
-  const iban = raw.replace(/\s/g, "").toUpperCase();
-  if (iban.length < 5) return "IBAN is too short";
-  if (!/^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(iban)) return "IBAN format is invalid";
-  // MOD-97 check
-  const rearranged = iban.slice(4) + iban.slice(0, 4);
-  const numeric = rearranged.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
-  let remainder = 0;
-  for (const ch of numeric) {
-    remainder = (remainder * 10 + parseInt(ch, 10)) % 97;
-  }
-  return remainder === 1 ? "" : "IBAN check digits are invalid";
-}
-
-// ── Bank transfer form (international) ───────────────────────────────────
-
-function BankTransferForm({
+function StripeConnectCard({
   shopId,
-  shopCurrency,
-  shopCountry,
-  existing,
-  onSaved,
-  onCancel,
+  country,
+  account,
+  onChanged,
 }: {
   shopId: string;
-  shopCurrency: string;
-  shopCountry: string;
-  existing: PayoutAccount | null;
-  onSaved: (a: PayoutAccount) => void;
-  onCancel?: () => void;
+  country: string;
+  account: PayoutAccount | null;
+  onChanged: () => void | Promise<void>;
 }) {
-  const [bankName, setBankName] = useState(existing?.bankName ?? "");
-  const [holderName, setHolderName] = useState(existing?.accountHolderName ?? "");
-  const [accountNumber, setAccountNumber] = useState(existing?.accountNumber ?? "");
-  const [iban, setIban] = useState(existing?.iban ?? "");
-  const [ibanError, setIbanError] = useState("");
-  const [swiftBic, setSwiftBic] = useState(existing?.swiftBic ?? "");
-  const [sortCode, setSortCode] = useState(existing?.sortCode ?? "");
-  const [routingNumber, setRoutingNumber] = useState(existing?.routingNumber ?? "");
-  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<{
+    connected: boolean;
+    verified?: boolean;
+    requirementsDue?: string[];
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
 
-  const isUK = shopCountry === "GB";
-  const isUS = shopCountry === "US";
-  const useIBAN = ["GB", "MT", "IE", "DE", "FR", "ES", "NL", "PT", "IT"].includes(shopCountry);
+  const loadStatus = useCallback(async () => {
+    if (!shopId) { setLoading(false); return; }
+    try {
+      const r = await fetch(`/api/business/stripe/status?shop_id=${encodeURIComponent(shopId)}`);
+      const d = await r.json();
+      setStatus(d);
+      if (d?.verified) onChanged();
+    } catch {
+      setStatus({ connected: false });
+    } finally {
+      setLoading(false);
+    }
+  }, [shopId, onChanged]);
 
-  async function save() {
-    if (!holderName || (!iban && !accountNumber)) return;
-    setSaving(true);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  async function connect() {
+    setConnecting(true);
     setError("");
     try {
-      const r = await fetch("/api/admin/payout/account", {
+      const email = auth.currentUser?.email ?? "";
+      if (!email) throw new Error("Your account has no email on file. Please sign in again.");
+      const r = await fetch("/api/business/stripe/onboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop_id: shopId,
-          provider: "BANK_TRANSFER",
-          country: shopCountry,
-          currency: shopCurrency,
-          bank_name: bankName,
-          account_holder_name: holderName,
-          account_number: accountNumber,
-          iban,
-          swift_bic: swiftBic,
-          sort_code: sortCode,
-          routing_number: routingNumber,
-        }),
+        body: JSON.stringify({ shop_id: shopId, email, country }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Failed to save");
-      onSaved(d.account);
+      if (!r.ok || !d.onboarding_url) throw new Error(d.error || "Could not start Stripe onboarding.");
+      window.location.href = d.onboarding_url;
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setSaving(false);
+      setConnecting(false);
     }
   }
 
+  const connected = status?.connected ?? account?.provider === "STRIPE";
+  const verified = !!status?.verified || (account?.provider === "STRIPE" && account.isVerified);
+  const incomplete = connected && !verified;
+
   return (
-    <FormCard title="Bank Account" subtitle={`${shopCurrency} bank transfer · ${shopCountry}`}>
-      <div className="space-y-4">
-        <Field label="Account holder name">
-          <input
-            type="text"
-            value={holderName}
-            onChange={(e) => setHolderName(e.target.value)}
-            placeholder="Full legal name on bank account"
-            className={inputCls}
-          />
-        </Field>
-
-        <Field label="Bank name">
-          <input
-            type="text"
-            value={bankName}
-            onChange={(e) => setBankName(e.target.value)}
-            placeholder="e.g. Barclays, HSBC"
-            className={inputCls}
-          />
-        </Field>
-
-        {useIBAN ? (
-          <Field label="IBAN">
-            <input
-              type="text"
-              value={iban}
-              onChange={(e) => {
-                const val = e.target.value.toUpperCase().replace(/\s/g, "");
-                setIban(val);
-                setIbanError(val.length >= 5 ? validateIban(val) : "");
-              }}
-              onBlur={() => setIbanError(iban.length > 0 ? validateIban(iban) : "")}
-              placeholder={isUK ? "GB00 BANK 0000 0000 0000 00" : "IBAN"}
-              className={cn(inputCls, "font-mono", ibanError && "border-red-400 focus:ring-red-400")}
-            />
-            {ibanError && <p className="text-xs text-red-600 mt-1">{ibanError}</p>}
-          </Field>
-        ) : (
-          <Field label="Account number">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={accountNumber}
-              onChange={(e) => setAccountNumber(e.target.value)}
-              placeholder="Account number"
-              className={cn(inputCls, "font-mono")}
-            />
-          </Field>
-        )}
-
-        <Field label="SWIFT / BIC">
-          <input
-            type="text"
-            value={swiftBic}
-            onChange={(e) => setSwiftBic(e.target.value.toUpperCase())}
-            placeholder="e.g. BARCGB22"
-            className={cn(inputCls, "font-mono")}
-          />
-        </Field>
-
-        {isUK && (
-          <Field label="Sort code">
-            <input
-              type="text"
-              value={sortCode}
-              onChange={(e) => setSortCode(e.target.value)}
-              placeholder="00-00-00"
-              className={cn(inputCls, "font-mono")}
-            />
-          </Field>
-        )}
-
-        {isUS && (
-          <Field label="Routing number">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={routingNumber}
-              onChange={(e) => setRoutingNumber(e.target.value.replace(/\D/g, ""))}
-              placeholder="9-digit routing number"
-              className={cn(inputCls, "font-mono")}
-            />
-          </Field>
-        )}
-
-        <p className="text-xs text-slate-400 bg-slate-50 rounded-lg p-3">
-          Bank details are stored securely. SwiftRun will manually verify international accounts before the first payout.
-        </p>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <FormActions
-          canSubmit={!!holderName && (!!iban || !!accountNumber) && !!swiftBic && !ibanError}
-          saving={saving}
-          onSave={save}
-          onCancel={onCancel}
-          label="Save account"
-        />
+    <div className="max-w-xl rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-xl bg-indigo-50 grid place-items-center">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#635bff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" />
+            </svg>
+          </div>
+          <div>
+            <p className="font-black text-slate-900">International payouts</p>
+            <p className="text-xs text-slate-400">Powered by Stripe · {country}</p>
+          </div>
+        </div>
+        {verified ? (
+          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700">Verified</span>
+        ) : incomplete ? (
+          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700">Incomplete</span>
+        ) : null}
       </div>
-    </FormCard>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+          <div className="size-4 rounded-full border-2 border-[#056abf] border-t-transparent animate-spin" />
+          Checking connection…
+        </div>
+      ) : verified ? (
+        <p className="text-sm text-slate-600">
+          Your Stripe account is connected and verified. Payouts are sent automatically to your bank.
+        </p>
+      ) : incomplete ? (
+        <>
+          <p className="text-sm text-slate-600">
+            Your Stripe setup isn&apos;t finished. Payouts can&apos;t be sent until it&apos;s verified.
+          </p>
+          {status?.requirementsDue && status.requirementsDue.length > 0 && (
+            <p className="text-xs text-slate-400 mt-1">Outstanding: {status.requirementsDue.join(", ")}</p>
+          )}
+          <button
+            onClick={connect}
+            disabled={connecting}
+            className={cn(
+              "mt-4 h-11 w-full rounded-lg text-sm font-bold text-white transition-colors",
+              connecting ? "bg-slate-300 cursor-not-allowed" : "bg-[#635bff] hover:bg-indigo-700"
+            )}
+          >
+            {connecting ? "Opening Stripe…" : "Finish Stripe setup"}
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-slate-600">
+            Connect a Stripe account to receive automatic payouts to your bank. Stripe securely collects your bank details and verifies your identity.
+          </p>
+          <button
+            onClick={connect}
+            disabled={connecting}
+            className={cn(
+              "mt-4 h-11 w-full rounded-lg text-sm font-bold text-white transition-colors",
+              connecting ? "bg-slate-300 cursor-not-allowed" : "bg-[#635bff] hover:bg-indigo-700"
+            )}
+          >
+            {connecting ? "Opening Stripe…" : "Connect with Stripe"}
+          </button>
+        </>
+      )}
+
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
   );
 }
 
 // ── Shared UI helpers ──────────────────────────────────────────────────────
-
-const inputCls =
-  "w-full h-11 rounded-lg border border-slate-200 px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#056abf] focus:border-transparent";
 
 function FormCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
