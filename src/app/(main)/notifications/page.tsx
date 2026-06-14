@@ -34,6 +34,7 @@ interface Notif {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function notifHref(type: NotifType): string {
+  if (type === "payout") return "/payout";
   if (type === "order_new" || type.startsWith("order_")) return "/orders";
   if (type === "stock_low" || type === "stock_out") return "/products";
   if (type === "rating_new") return "/reviews";
@@ -49,6 +50,8 @@ function typeLabel(type: NotifType): string {
     case "stock_low": return "Low Stock";
     case "stock_out": return "Out of Stock";
     case "rating_new": return "Review";
+    case "payout": return "Payout";
+    default: return "Update";
   }
 }
 
@@ -61,6 +64,8 @@ function typeColors(type: NotifType) {
     case "stock_low": return { bg: "bg-amber-50", text: "text-amber-600", badge: "bg-amber-100 text-amber-700" };
     case "stock_out": return { bg: "bg-red-50", text: "text-red-600", badge: "bg-red-100 text-red-700" };
     case "rating_new": return { bg: "bg-yellow-50", text: "text-yellow-600", badge: "bg-yellow-100 text-yellow-700" };
+    case "payout": return { bg: "bg-emerald-50", text: "text-emerald-600", badge: "bg-emerald-100 text-emerald-700" };
+    default: return { bg: "bg-slate-50", text: "text-slate-600", badge: "bg-slate-100 text-slate-700" };
   }
 }
 
@@ -74,6 +79,7 @@ function TypeIcon({ type }: { type: NotifType }) {
       {(type === "order_driver_arrived") && <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>}
       {(type === "stock_low" || type === "stock_out") && <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></>}
       {(type === "rating_new") && <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />}
+      {(type === "payout") && <><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></>}
     </svg>
   );
 }

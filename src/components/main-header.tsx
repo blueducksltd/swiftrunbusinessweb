@@ -19,6 +19,8 @@ function notifStyle(type: NotifType) {
     case "stock_low":            return { bg: "bg-amber-50",  stroke: "#d97706" };
     case "stock_out":            return { bg: "bg-red-50",    stroke: "#dc2626" };
     case "rating_new":           return { bg: "bg-yellow-50", stroke: "#ca8a04" };
+    case "payout":               return { bg: "bg-emerald-50", stroke: "#059669" };
+    default:                     return { bg: "bg-slate-50",  stroke: "#475569" };
   }
 }
 
@@ -42,6 +44,9 @@ function NotifIcon({ type }: { type: NotifType }) {
       {type === "rating_new" && (
         <><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></>
       )}
+      {type === "payout" && (
+        <><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></>
+      )}
     </svg>
   );
 }
@@ -58,6 +63,10 @@ function notifHref(type: NotifType): string {
       return "/products";
     case "rating_new":
       return "/reviews";
+    case "payout":
+      return "/payout";
+    default:
+      return "#";
   }
 }
 

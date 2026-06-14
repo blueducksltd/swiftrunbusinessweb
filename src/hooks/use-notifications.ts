@@ -27,7 +27,8 @@ export type NotifType =
   | "order_driver_arrived"
   | "stock_low"
   | "stock_out"
-  | "rating_new";
+  | "rating_new"
+  | "payout";
 
 export interface AppNotification {
   id: string;
