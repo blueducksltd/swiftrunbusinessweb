@@ -679,12 +679,28 @@ export default function OrdersPage() {
                 </div>
               )}
 
-              {detailOrder.items.length > 1 && (
-                <div className="mb-4 p-3 bg-slate-50 rounded-lg space-y-1.5">
+              {detailOrder.items.length > 0 && (
+                <div className="mb-4 p-3 bg-slate-50 rounded-lg space-y-2.5">
                   {detailOrder.items.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-700">{item.name}</span>
-                      <span className="text-slate-500">×{item.qty} — {fmt(item.total, shopCurrency)}</span>
+                    <div key={i} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-slate-700">{item.name}</span>
+                        <span className="text-slate-500">×{item.qty} — {fmt(item.total, shopCurrency)}</span>
+                      </div>
+                      {item.selectedOptions && item.selectedOptions.length > 0 && (
+                        <div className="pl-3 space-y-0.5 border-l-2 border-slate-200">
+                          {item.selectedOptions.map((opt, j) => {
+                            const optQty = Number(opt?.qty ?? 1);
+                            const optPrice = Number(opt?.price ?? 0);
+                            return (
+                              <div key={j} className="flex items-center justify-between text-[11px] text-slate-500">
+                                <span>+ {opt?.name ?? "Add-on"}{optQty > 1 ? ` ×${optQty}` : ""}</span>
+                                {optPrice > 0 && <span>{fmt(optPrice, shopCurrency)}</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

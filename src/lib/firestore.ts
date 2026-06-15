@@ -21,6 +21,27 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+export const MAX_BUSINESS_IMAGE_SIZE = 20 * 1024 * 1024;
+const ALLOWED_BUSINESS_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_BUSINESS_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+export function validateBusinessImageFile(file: File) {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const type = file.type.toLowerCase();
+
+  if (ext === "svg" || type === "image/svg+xml") {
+    throw new Error("SVG images are not allowed for security reasons. Please upload a JPG, PNG, or WEBP image.");
+  }
+
+  if (!ALLOWED_BUSINESS_IMAGE_EXTENSIONS.has(ext) || !ALLOWED_BUSINESS_IMAGE_TYPES.has(type)) {
+    throw new Error("Please upload a JPG, PNG, or WEBP image.");
+  }
+
+  if (file.size > MAX_BUSINESS_IMAGE_SIZE) {
+    throw new Error("This image is too large. Please upload an image smaller than 20MB.");
+  }
+}
+
 export type ProductStatus = "Active" | "Low Stock" | "Out of Stock";
 
 export interface ProductOption {
@@ -80,6 +101,8 @@ export interface OrderItem {
   total: number;
   imageUrl: string;
   unit: string;
+  // Per-item add-ons / options the customer selected (saved by the app).
+  selectedOptions?: { name?: string; qty?: number; price?: number }[];
 }
 
 export interface ErrandOrder {
@@ -269,14 +292,18 @@ export function subscribeToProducts(
 
 
 export async function uploadProductImage(shopId: string, file: File): Promise<string> {
+  validateBusinessImageFile(file);
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const safeName = file.name
     .replace(/\.[^/.]+$/, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "")
-    .slice(0, 60) || "product";
-  const imageRef = ref(storage, `shops/${shopId}/products/${Date.now()}-${safeName}.${ext}`);
+    .slice(0, 48) || "image";
+  const uniquePart = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const imageRef = ref(storage, `shops/${shopId}/products/${uniquePart}-${safeName}.${ext}`);
   await uploadBytes(imageRef, file, {
     contentType: file.type || "image/jpeg",
     customMetadata: { shopId },
