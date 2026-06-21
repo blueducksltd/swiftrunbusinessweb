@@ -72,15 +72,22 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           if (email === ownerEmail) {
             setSession(resolvedShopId, shopName, "owner");
           } else {
-            // Direct doc lookup using uid — no index needed
             const memberSnap = await getDoc(doc(db, "Shops", resolvedShopId, "members", user.uid));
-            if (!memberSnap.exists() || memberSnap.data()?.isActive === false) {
+            let memberData = memberSnap.exists() ? memberSnap.data() : null;
+            if (!memberData) {
+              const memberQuery = await getDocs(query(
+                collection(db, "Shops", resolvedShopId, "members"),
+                where("email", "==", email),
+              ));
+              memberData = memberQuery.docs[0]?.data() ?? null;
+            }
+            if (!memberData || memberData.isActive === false) {
               await auth.signOut();
               clearSession();
               router.replace("/login");
               return;
             }
-            const role = memberSnap.exists() ? (memberSnap.data()?.role ?? "Staff") : "Staff";
+            const role = memberData.role ?? "Staff";
             setSession(resolvedShopId, shopName, role);
           }
         }

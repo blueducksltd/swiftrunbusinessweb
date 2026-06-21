@@ -3,8 +3,9 @@ import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, shopId, suspend } = await req.json() as {
+    const { email, memberId, shopId, suspend } = await req.json() as {
       email: string;
+      memberId?: string;
       shopId: string;
       suspend: boolean;
     };
@@ -13,13 +14,37 @@ export async function POST(req: NextRequest) {
     }
     const auth = adminAuth();
     const db = adminDb();
+    const normalizedEmail = email.toLowerCase().trim();
+    const membersRef = db.collection("Shops").doc(shopId).collection("members");
 
-    // Update Firebase Auth
-    const user = await auth.getUserByEmail(email);
+    const memberRef = memberId
+      ? membersRef.doc(memberId)
+      : (await membersRef.where("email", "==", normalizedEmail).limit(1).get()).docs[0]?.ref;
+    if (!memberRef) {
+      return NextResponse.json({ ok: false, reason: "Staff member not found" }, { status: 404 });
+    }
+    const memberSnap = await memberRef.get();
+    if (!memberSnap.exists) {
+      return NextResponse.json({ ok: false, reason: "Staff member not found" }, { status: 404 });
+    }
+
+    const member = memberSnap.data() ?? {};
+    const authUid = typeof member.authUid === "string" && member.authUid
+      ? member.authUid
+      : memberRef.id;
+
+    let user;
+    try {
+      user = await auth.getUser(authUid);
+    } catch {
+      user = await auth.getUserByEmail(normalizedEmail);
+    }
     await auth.updateUser(user.uid, { disabled: suspend });
 
     // Keep Firestore isActive in sync
-    await db.collection("Shops").doc(shopId).collection("members").doc(user.uid).update({
+    await memberRef.update({
+      authUid: user.uid,
+      email: normalizedEmail,
       isActive: !suspend,
     });
 

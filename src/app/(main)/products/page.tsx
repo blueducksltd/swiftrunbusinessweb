@@ -11,6 +11,7 @@ import {
   updateProduct,
   deleteProduct,
   uploadProductImage,
+  validateBusinessImageFile,
   type Product,
   type ProductOption,
   type ShopCategory,
@@ -343,15 +344,10 @@ export default function ProductsPage() {
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
-      setImageError("Please choose an image file.");
-      setImageFile(null);
-      setImagePreview("");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setImageError("Image must be 5MB or smaller.");
+    try {
+      validateBusinessImageFile(file);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "Please upload a JPG, PNG, or WEBP image.");
       setImageFile(null);
       setImagePreview("");
       return;
@@ -383,7 +379,14 @@ export default function ProductsPage() {
     if (!shopId) return;
     setSaving(true);
     try {
-      const imageUrl = imageFile ? await uploadProductImage(shopId, imageFile) : "";
+      let imageUrl = "";
+      try {
+        imageUrl = imageFile ? await uploadProductImage(shopId, imageFile) : "";
+      } catch (err) {
+        setImageError(err instanceof Error ? err.message : "The image upload failed. Please check your connection and try again.");
+        setTab("detail");
+        return;
+      }
       const cleanOptions = buildOptions(options);
       await addProduct(shopId, getShopName(), {
         categoryId: form.categoryId,
@@ -403,6 +406,9 @@ export default function ProductsPage() {
       });
       setAddOpen(false);
       resetAddForm();
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "The product could not be saved. Please check your connection and try again.");
+      setTab("detail");
     } finally {
       setSaving(false);
     }
@@ -454,8 +460,13 @@ export default function ProductsPage() {
     setEditImageError("");
     if (editImageFile) URL.revokeObjectURL(editImagePreview);
     if (!file) { setEditImageFile(null); setEditImagePreview(editProduct?.raw.imageUrl ?? ""); return; }
-    if (!file.type.startsWith("image/")) { setEditImageError("Please choose an image file."); setEditImageFile(null); return; }
-    if (file.size > 5 * 1024 * 1024) { setEditImageError("Image must be 5MB or smaller."); setEditImageFile(null); return; }
+    try {
+      validateBusinessImageFile(file);
+    } catch (err) {
+      setEditImageError(err instanceof Error ? err.message : "Please upload a JPG, PNG, or WEBP image.");
+      setEditImageFile(null);
+      return;
+    }
     setEditImageFile(file);
     setEditImagePreview(URL.createObjectURL(file));
   }
@@ -469,7 +480,13 @@ export default function ProductsPage() {
     try {
       let imageUrl = editProduct.raw.imageUrl ?? "";
       if (editImageFile) {
-        imageUrl = await uploadProductImage(shopId, editImageFile);
+        try {
+          imageUrl = await uploadProductImage(shopId, editImageFile);
+        } catch (err) {
+          setEditImageError(err instanceof Error ? err.message : "The image upload failed. Please check your connection and try again.");
+          setEditTab("detail");
+          return;
+        }
       }
       const cleanOptions = buildOptions(editOptions);
       const newStock = parseInt(editForm.qty) || 0;
@@ -487,6 +504,9 @@ export default function ProductsPage() {
         ...buildLaundryPayload(editLaundryForm),
       });
       resetEditForm();
+    } catch (err) {
+      setEditImageError(err instanceof Error ? err.message : "The product could not be saved. Please check your connection and try again.");
+      setEditTab("detail");
     } finally {
       setEditSaving(false);
     }
@@ -740,7 +760,7 @@ export default function ProductsPage() {
                         </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                           className="hidden"
                           onChange={(e) => handleImageSelect(e.target.files?.[0] ?? null)}
                         />
@@ -972,7 +992,7 @@ export default function ProductsPage() {
                         </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                           className="hidden"
                           onChange={(e) => handleEditImageSelect(e.target.files?.[0] ?? null)}
                         />

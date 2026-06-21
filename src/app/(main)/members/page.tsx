@@ -148,7 +148,12 @@ export default function MembersPage() {
       const res = await fetch("/api/staff/suspend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emp.email, shopId, suspend: willSuspend }),
+        body: JSON.stringify({
+          email: emp.email,
+          memberId: emp.id,
+          shopId,
+          suspend: willSuspend,
+        }),
       });
       const json = await res.json();
       if (!json.ok) alert(`Failed: ${json.reason}`);
