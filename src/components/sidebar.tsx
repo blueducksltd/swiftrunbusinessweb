@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import { signOut } from "firebase/auth";
 import { cn } from "@/lib/cn";
 import { auth } from "@/lib/firebase";
-import { clearSession, getRole, getShopId } from "@/lib/session";
+import { clearSession, getRole, getShopId, getShopName } from "@/lib/session";
 import {
   adsAvailableForShop,
   subscribeToAdsConfig,
@@ -113,6 +113,20 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: "Support",
+    href: "/support",
+    icon: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="12" cy="12" r="4" />
+        <line x1="4.93" y1="4.93" x2="9.17" y2="9.17" />
+        <line x1="14.83" y1="14.83" x2="19.07" y2="19.07" />
+        <line x1="14.83" y1="9.17" x2="19.07" y2="4.93" />
+        <line x1="4.93" y1="19.07" x2="9.17" y2="14.83" />
+      </svg>
+    ),
+  },
 ];
 
 function stockColor(status: string) {
@@ -128,7 +142,10 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const [updates, setUpdates] = useState<Product[]>([]);
   const [adsConfig, setAdsConfig] = useState<AdsConfig | null>(null);
   const [shopCountry, setShopCountry] = useState("");
+  const [shopName, setShopName] = useState(getShopName());
+  const [shopLogo, setShopLogo] = useState("");
   const isOwner = getRole() === "owner";
+  const role = getRole();
   // Layer 1 of the ads protection: the menu item only exists while the admin
   // has the feature enabled for this shop's country. Layers 2 and 3 live in
   // the promotions page and the /api/ads/create route.
@@ -144,6 +161,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     const unsubCfg = subscribeToAdsConfig(setAdsConfig);
     const unsubShop = subscribeToShop(shopId, (shop) => {
       setShopCountry(shop?.countryCode ?? shop?.isoCode ?? "");
+      if (shop?.name) setShopName(shop.name);
+      setShopLogo(shop?.logoUrl ?? "");
     });
     return () => { unsub(); unsubCfg(); unsubShop(); };
   }, []);
@@ -224,8 +243,38 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
         </div>
       </div>
 
+      {/* Account */}
+      <div className="px-3 pt-3 border-t border-slate-100 shrink-0">
+        {(() => {
+          const avatar = shopLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={shopLogo} alt={shopName} className="size-9 rounded-lg object-cover shrink-0" />
+          ) : (
+            <div className="size-9 rounded-lg bg-[#056abf] text-white grid place-items-center text-sm font-black shrink-0">
+              {(shopName || "S").charAt(0).toUpperCase()}
+            </div>
+          );
+          const body = (
+            <div className="flex items-center gap-2.5 rounded-lg p-2">
+              {avatar}
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-slate-800 truncate">{shopName || "My Shop"}</p>
+                <p className="text-xs text-slate-400 capitalize truncate">{role}</p>
+              </div>
+            </div>
+          );
+          return isOwner ? (
+            <Link href="/business" onClick={onClose} className="block hover:bg-slate-50 rounded-lg transition-colors">
+              {body}
+            </Link>
+          ) : (
+            body
+          );
+        })()}
+      </div>
+
       {/* Logout */}
-      <div className="px-3 pb-5 pt-3 border-t border-slate-100 shrink-0">
+      <div className="px-3 pb-5 pt-1 shrink-0">
         <button
           onClick={() => setLogoutOpen(true)}
           className="flex items-center gap-3 h-11 w-full rounded-lg px-3 text-sm font-semibold text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors"
