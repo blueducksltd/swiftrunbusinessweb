@@ -656,3 +656,21 @@ export async function getOrderStats(shopId: string) {
   const avgOrder = completed > 0 ? Math.round(totalRevenue / completed) : 0;
   return { total, completed, pending, cancelled, totalRevenue, avgOrder, orders };
 }
+
+// ── Business FAQs (managed by admin in the SwiftRun admin panel) ──────────────
+export type BusinessFaq = { id: string; question: string; answer: string; order: number };
+
+export async function getBusinessFaqs(): Promise<BusinessFaq[]> {
+  const snap = await getDocs(collection(db, "businessFAQs"));
+  const faqs = snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      question: (data.question as string) ?? "",
+      answer: (data.answer as string) ?? "",
+      order: (data.order as number) ?? 0,
+    };
+  });
+  faqs.sort((a, b) => a.order - b.order);
+  return faqs;
+}

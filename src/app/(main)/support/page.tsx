@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getRole, getShopId, getShopName } from "@/lib/session";
+import { getBusinessFaqs } from "@/lib/firestore";
 
 const CATEGORIES = ["Orders", "Payouts", "Products", "Account", "Other"];
 
-const FAQS: { q: string; a: string }[] = [
+// Shown only if the admin hasn't published any Business FAQs yet.
+const FALLBACK_FAQS: { q: string; a: string }[] = [
   {
     q: "How do I add or update products?",
     a: "Go to Products in the sidebar, then use Add Product or tap any product to edit its details, price, and stock.",
@@ -30,6 +32,17 @@ const FAQS: { q: string; a: string }[] = [
 
 export default function SupportPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [faqs, setFaqs] = useState(FALLBACK_FAQS);
+
+  useEffect(() => {
+    getBusinessFaqs()
+      .then((items) => {
+        if (items.length) setFaqs(items.map((f) => ({ q: f.question, a: f.answer })));
+      })
+      .catch(() => {
+        // Keep the fallback FAQs if the read fails.
+      });
+  }, []);
 
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [subject, setSubject] = useState("");
@@ -94,7 +107,7 @@ export default function SupportPage() {
             Frequently asked
           </h2>
           <div className="space-y-2">
-            {FAQS.map((item, i) => {
+            {faqs.map((item, i) => {
               const open = openFaq === i;
               return (
                 <div key={i} className="border border-slate-100 rounded-lg overflow-hidden">
