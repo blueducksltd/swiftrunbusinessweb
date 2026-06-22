@@ -4,79 +4,33 @@ on:
   push:
     branches: [main]
 
+# Runs on a self-hosted runner installed ON the VPS (systemd service
+# `actions.runner.blueducksltd-swiftrunbusinessweb.srv923762-business`, runs as
+# root). The runner connects outbound to GitHub, so no inbound SSH is needed —
+# this avoids the firewall dropping GitHub-hosted runner IPs on :22.
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-
-    env:
-      # Single source for the deploy script so all retry attempts stay identical.
-      # The VPS npm cache intermittently corrupts (OOM during build with no swap),
-      # leaving packages (incl. `next`) extracted without their bin, so a plain
-      # `npm run build` fails with "next: not found". Start from a clean slate
-      # every deploy and abort loudly if the next binary still didn't land.
-      DEPLOY_SCRIPT: |
-        set -e
-        cd /var/www/swiftrunbusinessweb
-        git fetch origin main
-        git reset --hard origin/main
-        rm -rf node_modules .next
-        npm cache clean --force
-        npm ci
-        test -x node_modules/.bin/next || { echo "next binary missing after npm ci — aborting"; exit 1; }
-        npm run build
-
-        # Update Nginx config
-        sudo cp nginx/business.swiftrunapp.com.conf /etc/nginx/sites-available/business.swiftrunapp.com
-        sudo ln -sf /etc/nginx/sites-available/business.swiftrunapp.com /etc/nginx/sites-enabled/business.swiftrunapp.com
-        sudo nginx -t && sudo systemctl reload nginx
-
-        # Restart app
-        pm2 restart swiftrun-business || pm2 start ecosystem.config.js
-        pm2 save
-
+    runs-on: [self-hosted, business-web]
     steps:
-      # GitHub runners intermittently fail to reach the VPS on :22
-      # ("dial tcp :22: i/o timeout"). Retry the SSH step up to 3 times.
-      - name: Deploy via SSH (attempt 1)
-        id: deploy1
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 20m
-          script: ${{ env.DEPLOY_SCRIPT }}
+      - name: Build and restart business web
+        run: |
+          set -e
+          cd /var/www/swiftrunbusinessweb
+          git fetch origin main
+          git reset --hard origin/main
+          # The npm cache intermittently corrupts (OOM during build with no
+          # swap); start clean every deploy and abort loudly if next is missing.
+          rm -rf node_modules .next
+          npm cache clean --force
+          npm ci
+          test -x node_modules/.bin/next || { echo "next binary missing after npm ci — aborting"; exit 1; }
+          npm run build
 
-      - name: Wait before retry
-        if: steps.deploy1.outcome == 'failure'
-        run: sleep 30
+          # Nginx config (idempotent)
+          sudo cp nginx/business.swiftrunapp.com.conf /etc/nginx/sites-available/business.swiftrunapp.com
+          sudo ln -sf /etc/nginx/sites-available/business.swiftrunapp.com /etc/nginx/sites-enabled/business.swiftrunapp.com
+          sudo nginx -t && sudo systemctl reload nginx
 
-      - name: Deploy via SSH (attempt 2)
-        id: deploy2
-        if: steps.deploy1.outcome == 'failure'
-        continue-on-error: true
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 20m
-          script: ${{ env.DEPLOY_SCRIPT }}
-
-      - name: Wait before final retry
-        if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
-        run: sleep 60
-
-      - name: Deploy via SSH (final attempt)
-        if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60s
-          command_timeout: 20m
-          script: ${{ env.DEPLOY_SCRIPT }}
+          # Restart app
+          pm2 restart swiftrun-business || pm2 start ecosystem.config.js
+          pm2 save
