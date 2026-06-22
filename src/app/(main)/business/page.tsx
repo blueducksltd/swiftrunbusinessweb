@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { subscribeToShop, updateShopProfile } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 
@@ -8,26 +8,6 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 
 type DayHours = { open: string; close: string; closed: boolean };
 type Hours = Record<string, DayHours>;
-type PlaceSuggestion = {
-  description: string;
-  placeId: string;
-  mainText: string;
-  secondaryText: string;
-};
-
-type PlaceDetails = {
-  address: string;
-  latitude: number;
-  longitude: number;
-};
-type GooglePrediction = {
-  description?: string;
-  place_id?: string;
-  structured_formatting?: {
-    main_text?: string;
-    secondary_text?: string;
-  };
-};
 
 const DEFAULT_HOURS: Hours = Object.fromEntries(
   DAYS.map((d) => [d, { open: "09:00", close: "21:00", closed: d === "Sunday" }])
@@ -44,11 +24,6 @@ export default function BusinessPage() {
     bannerUrl: "",
     logoUrl: "",
   });
-  const [addressSuggestions, setAddressSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [addressLoading, setAddressLoading] = useState(false);
-  const [addressError, setAddressError] = useState("");
-  const [selectedAddress, setSelectedAddress] = useState("");
-  const addressDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hours, setHours] = useState<Hours>(DEFAULT_HOURS);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -70,7 +45,6 @@ export default function BusinessPage() {
         bannerUrl: shop.bannerUrl ?? "",
         logoUrl: shop.logoUrl ?? "",
       });
-      setSelectedAddress(shop.address ?? "");
       if (shop.openingHours && Object.keys(shop.openingHours).length > 0) {
         setHours((prev) => ({ ...prev, ...shop.openingHours }));
       }
@@ -89,9 +63,6 @@ export default function BusinessPage() {
       await updateShopProfile(shopId, {
         name: form.name,
         description: form.description,
-        address: form.address,
-        latitude: form.latitude,
-        longitude: form.longitude,
         phone: form.phone,
         openingHours: hours,
       });
@@ -110,87 +81,6 @@ export default function BusinessPage() {
 
   function updateHours(day: string, field: "open" | "close", value: string) {
     setHours((p) => ({ ...p, [day]: { ...p[day], [field]: value } }));
-  }
-
-  async function fetchAddressSuggestions(value: string) {
-    if (value.trim().length < 3) {
-      setAddressSuggestions([]);
-      setAddressLoading(false);
-      return;
-    }
-    setAddressLoading(true);
-    setAddressError("");
-    try {
-      const params = new URLSearchParams({
-        input: value.trim(),
-      });
-      if (form.latitude && form.longitude) {
-        params.set("location", `${form.latitude},${form.longitude}`);
-        params.set("radius", "50000");
-      }
-      const res = await fetch(`/api/places/autocomplete?${params}`);
-      const data = await res.json();
-      if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-        throw new Error(data.error_message || data.status || "Could not load suggestions");
-      }
-      setAddressSuggestions(
-        ((data.predictions || []) as GooglePrediction[]).slice(0, 6).map((p) => ({
-          description: p.description || "",
-          placeId: p.place_id || "",
-          mainText: p.structured_formatting?.main_text || p.description || "",
-          secondaryText: p.structured_formatting?.secondary_text || "",
-        }))
-      );
-    } catch (err) {
-      setAddressError(err instanceof Error ? err.message : "Could not load suggestions");
-      setAddressSuggestions([]);
-    } finally {
-      setAddressLoading(false);
-    }
-  }
-
-  function handleAddressChange(value: string) {
-    setForm((p) => ({
-      ...p,
-      address: value,
-      latitude: value === selectedAddress ? p.latitude : 0,
-      longitude: value === selectedAddress ? p.longitude : 0,
-    }));
-    if (addressDebounce.current) clearTimeout(addressDebounce.current);
-    addressDebounce.current = setTimeout(() => fetchAddressSuggestions(value), 300);
-  }
-
-  async function selectAddressSuggestion(suggestion: PlaceSuggestion) {
-    if (!suggestion.placeId) return;
-    setAddressLoading(true);
-    setAddressError("");
-    try {
-      const params = new URLSearchParams({
-        place_id: suggestion.placeId,
-      });
-      const res = await fetch(`/api/places/details?${params}`);
-      const data = await res.json();
-      if (data.status !== "OK") {
-        throw new Error(data.error_message || data.status || "Could not confirm address");
-      }
-      const details: PlaceDetails = {
-        address: data.result?.formatted_address || suggestion.description,
-        latitude: data.result?.geometry?.location?.lat || 0,
-        longitude: data.result?.geometry?.location?.lng || 0,
-      };
-      setForm((p) => ({
-        ...p,
-        address: details.address,
-        latitude: details.latitude,
-        longitude: details.longitude,
-      }));
-      setSelectedAddress(details.address);
-      setAddressSuggestions([]);
-    } catch (err) {
-      setAddressError(err instanceof Error ? err.message : "Could not confirm address");
-    } finally {
-      setAddressLoading(false);
-    }
   }
 
   return (
@@ -300,55 +190,22 @@ export default function BusinessPage() {
                 <input
                   type="text"
                   value={form.address}
-                  onChange={(e) => handleAddressChange(e.target.value)}
-                  autoComplete="off"
-                  placeholder="Start typing your store address"
-                  className="w-full h-10 rounded-lg border border-slate-200 px-3 pr-10 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+                  readOnly
+                  placeholder="No address set"
+                  className="w-full h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 pr-10 text-sm text-slate-600 outline-none cursor-not-allowed"
                 />
                 <div className="absolute right-3 top-2.5 text-slate-400">
-                  {addressLoading ? (
-                    <span className="block size-4 rounded-full border-2 border-slate-300 border-t-[#056abf] animate-spin" />
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z" />
-                      <circle cx="12" cy="10" r="3" />
-                    </svg>
-                  )}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z" />
+                    <circle cx="12" cy="10" r="3" />
+                  </svg>
                 </div>
-                {addressSuggestions.length > 0 && (
-                  <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                    {addressSuggestions.map((s) => (
-                      <button
-                        key={s.placeId}
-                        type="button"
-                        onClick={() => selectAddressSuggestion(s)}
-                        className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-slate-50"
-                      >
-                        <span className="mt-0.5 text-[#056abf]">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z" />
-                            <circle cx="12" cy="10" r="3" />
-                          </svg>
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-bold text-slate-800">{s.mainText}</span>
-                          {s.secondaryText && (
-                            <span className="block truncate text-xs text-slate-500">{s.secondaryText}</span>
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <p className="text-xs text-slate-400">
-                  {form.latitude && form.longitude
-                    ? `Pinned at ${form.latitude.toFixed(5)}, ${form.longitude.toFixed(5)}`
-                    : "Choose a suggestion so customers and drivers get the exact store location."}
-                </p>
-              </div>
-              {addressError && <p className="mt-1.5 text-xs font-semibold text-red-500">{addressError}</p>}
+              <p className="mt-1.5 text-xs text-slate-400">
+                {form.latitude && form.longitude
+                  ? `Pinned at ${form.latitude.toFixed(5)}, ${form.longitude.toFixed(5)}. `
+                  : ""}Address and map pin are managed by the SwiftRun team. Contact Support to change them.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1.5">Phone</label>
