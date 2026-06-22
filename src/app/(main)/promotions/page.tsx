@@ -85,11 +85,6 @@ export default function PromotionsPage() {
   const [editSubtitle, setEditSubtitle] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [busyAd, setBusyAd] = useState(false);
-  const [resumeAd, setResumeAd] = useState<BusinessAd | null>(null);
-  const [resumeDays, setResumeDays] = useState(7);
-  const [resumePayMethod, setResumePayMethod] = useState<"balance" | "card">("balance");
-  const [resumeError, setResumeError] = useState("");
-  const [resumeSubmitting, setResumeSubmitting] = useState(false);
 
   async function saveEdit() {
     if (!editAd || busyAd) return;
@@ -113,66 +108,6 @@ export default function PromotionsPage() {
     }
   }
 
-  async function payToResume() {
-    if (!resumeAd || resumeSubmitting) return;
-    setResumeError("");
-    if (resumePayMethod === "card" && !cfg?.payWithCard) {
-      setResumeError("Card payment is not available for promotions right now.");
-      return;
-    }
-    if (resumePayMethod === "balance" && !cfg?.payWithBalance) {
-      setResumeError("Store balance payment is not available for promotions right now.");
-      return;
-    }
-    setResumeSubmitting(true);
-    try {
-      if (resumePayMethod === "balance") {
-        const res = await fetch("/api/ads/resume", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shopId,
-            resumeAdId: resumeAd.id,
-            title: resumeAd.title,
-            days: resumeDays,
-            countryCode,
-          }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          setResumeError(data.reason ?? "Could not resume this promotion.");
-          return;
-        }
-        setNotice("Payment received. Your promotion is live again.");
-        setResumeAd(null);
-        return;
-      }
-
-      const res = await fetch("/api/ads/pay-init", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopId,
-          resumeAdId: resumeAd.id,
-          title: resumeAd.title,
-          days: resumeDays,
-          paymentMethod: "card",
-          email: shop?.email ?? shop?.ownerEmail ?? "",
-        }),
-      });
-      const data = await res.json();
-      if (!data.ok || !data.url) {
-        setResumeError(data.reason ?? "Could not start resume payment.");
-        return;
-      }
-      window.location.href = data.url;
-    } catch {
-      setResumeError("Could not start resume payment. Please try again.");
-    } finally {
-      setResumeSubmitting(false);
-    }
-  }
-
   useEffect(() => {
     if (!shopId) return;
     const u1 = subscribeToAdsConfig((c) => { setCfg(c); setCfgLoaded(true); });
@@ -191,9 +126,7 @@ export default function PromotionsPage() {
     if (!cfg) return;
     if (payMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setPayMethod("card");
     if (payMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setPayMethod("balance");
-    if (resumePayMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setResumePayMethod("card");
-    if (resumePayMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setResumePayMethod("balance");
-  }, [cfg, payMethod, resumePayMethod]);
+  }, [cfg, payMethod]);
 
   // Returning from a card-payment gateway: verify and finalize the ad.
   useEffect(() => {
@@ -229,13 +162,6 @@ export default function PromotionsPage() {
     const rest = days % 7;
     return weeks * pricing.weekly + rest * pricing.daily;
   }, [pricing, days]);
-  const resumeCost = useMemo(() => {
-    if (!pricing) return null;
-    const weeks = Math.floor(resumeDays / 7);
-    const rest = resumeDays % 7;
-    return weeks * pricing.weekly + rest * pricing.daily;
-  }, [pricing, resumeDays]);
-
   // Live preview: uploaded image wins, else the product photo (product ads),
   // else the brand gradient — exactly how the customer app renders it.
   const bannerPreviewUrl = useMemo(
@@ -423,17 +349,9 @@ export default function PromotionsPage() {
               </div>
               <div className="flex items-center gap-2">
                 {adminPaused && (
-                  <button
-                    onClick={() => {
-                      setResumeAd(ad);
-                      setResumeDays(ad.days && DURATIONS.includes(ad.days) ? ad.days : 7);
-                      setResumePayMethod(cfg?.payWithBalance ? "balance" : "card");
-                      setResumeError("");
-                    }}
-                    className="h-9 px-4 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
-                  >
-                    Pay to resume
-                  </button>
+                  <div className="max-w-xs rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+                    Paused by SwiftRun. Contact support to review this ad.
+                  </div>
                 )}
                 {(ad.status === "active" || (ad.status === "paused" && !adminPaused)) && (
                   <button
@@ -493,113 +411,6 @@ export default function PromotionsPage() {
                 <button onClick={() => setEditAd(null)} className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
                 <button onClick={saveEdit} disabled={busyAd || !editTitle.trim()} className="flex-1 h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-60">
                   {busyAd ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Resume Ad Modal */}
-      {resumeAd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="font-black text-slate-900">Resume promotion</h2>
-              <button onClick={() => setResumeAd(null)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-amber-800">{resumeAd.title}</p>
-                <p className="mt-1 text-xs font-semibold text-amber-700">
-                  SwiftRun paused this ad. Choose a fresh paid run to put it live again.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">New duration</label>
-                <div className="flex gap-2 flex-wrap">
-                  {DURATIONS.map((d) => (
-                    <button
-                      key={d} type="button" onClick={() => setResumeDays(d)}
-                      className={cn(
-                        "h-9 px-4 rounded-lg border text-sm font-bold transition-colors",
-                        resumeDays === d
-                          ? "border-[#056abf] bg-blue-50 text-[#056abf]"
-                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                      )}
-                    >
-                      {d === 1 ? "1 day" : d === 7 ? "1 week" : d === 14 ? "2 weeks" : d === 30 ? "30 days" : `${d} days`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {pricing && resumeCost !== null && (
-                <div className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
-                  <span className="text-sm font-bold text-slate-600">
-                    Total {resumePayMethod === "card" ? "charged to card" : "deducted from balance"}
-                  </span>
-                  <span className="text-lg font-black text-slate-900">{fmtCost(resumeCost, pricing.currency)}</span>
-                </div>
-              )}
-
-              {cfg && (cfg.payWithBalance || cfg.payWithCard) && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Payment method</label>
-                  <div className="flex gap-2">
-                    {cfg.payWithBalance && (
-                      <button
-                        type="button" onClick={() => setResumePayMethod("balance")}
-                        className={cn(
-                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
-                          resumePayMethod === "balance"
-                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
-                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                        )}
-                      >
-                        Store balance
-                      </button>
-                    )}
-                    {cfg.payWithCard && (
-                      <button
-                        type="button" onClick={() => setResumePayMethod("card")}
-                        className={cn(
-                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
-                          resumePayMethod === "card"
-                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
-                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
-                        )}
-                      >
-                        Card
-                      </button>
-                    )}
-                  </div>
-                  {fin && resumePayMethod === "balance" && (
-                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                      Available balance: {fmtCost(fin.withdrawable, pricing?.currency ?? "")}
-                    </p>
-                  )}
-                </div>
-              )}
-              {!cfg?.payWithBalance && !cfg?.payWithCard && (
-                <p className="text-sm font-bold text-red-600">Promotion payments are not enabled right now.</p>
-              )}
-              {resumeError && <p className="text-sm font-bold text-red-600">{resumeError}</p>}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setResumeAd(null)}
-                  className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={payToResume}
-                  disabled={resumeSubmitting || (!cfg?.payWithBalance && !cfg?.payWithCard)}
-                  className="flex-1 h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {resumeSubmitting ? "Starting..." : "Pay to resume"}
                 </button>
               </div>
             </div>
