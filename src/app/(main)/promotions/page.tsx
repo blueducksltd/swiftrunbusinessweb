@@ -85,6 +85,11 @@ export default function PromotionsPage() {
   const [editSubtitle, setEditSubtitle] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [busyAd, setBusyAd] = useState(false);
+  const [continueAd, setContinueAd] = useState<BusinessAd | null>(null);
+  const [continueDays, setContinueDays] = useState(7);
+  const [continuePayMethod, setContinuePayMethod] = useState<"balance" | "card">("balance");
+  const [continueError, setContinueError] = useState("");
+  const [continueSubmitting, setContinueSubmitting] = useState(false);
 
   async function saveEdit() {
     if (!editAd || busyAd) return;
@@ -108,6 +113,66 @@ export default function PromotionsPage() {
     }
   }
 
+  async function payToContinue() {
+    if (!continueAd || continueSubmitting) return;
+    setContinueError("");
+    if (continuePayMethod === "card" && !cfg?.payWithCard) {
+      setContinueError("Card payment is not available for promotions right now.");
+      return;
+    }
+    if (continuePayMethod === "balance" && !cfg?.payWithBalance) {
+      setContinueError("Store balance payment is not available for promotions right now.");
+      return;
+    }
+    setContinueSubmitting(true);
+    try {
+      if (continuePayMethod === "balance") {
+        const res = await fetch("/api/ads/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId,
+            resumeAdId: continueAd.id,
+            title: continueAd.title,
+            days: continueDays,
+            countryCode,
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          setContinueError(data.reason ?? "Could not continue this promotion.");
+          return;
+        }
+        setNotice("Payment received. Your promotion is live again.");
+        setContinueAd(null);
+        return;
+      }
+
+      const res = await fetch("/api/ads/pay-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId,
+          resumeAdId: continueAd.id,
+          title: continueAd.title,
+          days: continueDays,
+          paymentMethod: "card",
+          email: shop?.email ?? shop?.ownerEmail ?? "",
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok || !data.url) {
+        setContinueError(data.reason ?? "Could not start payment.");
+        return;
+      }
+      window.location.href = data.url;
+    } catch {
+      setContinueError("Could not start payment. Please try again.");
+    } finally {
+      setContinueSubmitting(false);
+    }
+  }
+
   useEffect(() => {
     if (!shopId) return;
     const u1 = subscribeToAdsConfig((c) => { setCfg(c); setCfgLoaded(true); });
@@ -126,7 +191,9 @@ export default function PromotionsPage() {
     if (!cfg) return;
     if (payMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setPayMethod("card");
     if (payMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setPayMethod("balance");
-  }, [cfg, payMethod]);
+    if (continuePayMethod === "balance" && !cfg.payWithBalance && cfg.payWithCard) setContinuePayMethod("card");
+    if (continuePayMethod === "card" && !cfg.payWithCard && cfg.payWithBalance) setContinuePayMethod("balance");
+  }, [cfg, payMethod, continuePayMethod]);
 
   // Returning from a card-payment gateway: verify and finalize the ad.
   useEffect(() => {
@@ -162,6 +229,12 @@ export default function PromotionsPage() {
     const rest = days % 7;
     return weeks * pricing.weekly + rest * pricing.daily;
   }, [pricing, days]);
+  const continueCost = useMemo(() => {
+    if (!pricing) return null;
+    const weeks = Math.floor(continueDays / 7);
+    const rest = continueDays % 7;
+    return weeks * pricing.weekly + rest * pricing.daily;
+  }, [pricing, continueDays]);
   // Live preview: uploaded image wins, else the product photo (product ads),
   // else the brand gradient — exactly how the customer app renders it.
   const bannerPreviewUrl = useMemo(
@@ -353,6 +426,19 @@ export default function PromotionsPage() {
                     Paused by SwiftRun. Contact support to review this ad.
                   </div>
                 )}
+                {ad.status === "expired" && (
+                  <button
+                    onClick={() => {
+                      setContinueAd(ad);
+                      setContinueDays(ad.days && DURATIONS.includes(ad.days) ? ad.days : 7);
+                      setContinuePayMethod(cfg?.payWithBalance ? "balance" : "card");
+                      setContinueError("");
+                    }}
+                    className="h-9 px-4 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                  >
+                    Pay to continue
+                  </button>
+                )}
                 {(ad.status === "active" || (ad.status === "paused" && !adminPaused)) && (
                   <button
                     onClick={() => setAdPaused(ad.id, ad.status === "active")}
@@ -380,6 +466,113 @@ export default function PromotionsPage() {
           );
         })}
       </div>
+
+      {/* Continue Expired Ad Modal */}
+      {continueAd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="font-black text-slate-900">Continue promotion</h2>
+              <button onClick={() => setContinueAd(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <p className="text-sm font-bold text-blue-900">{continueAd.title}</p>
+                <p className="mt-1 text-xs font-semibold text-blue-800">
+                  This ad has expired. Choose a new paid run to put it live again.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">New duration</label>
+                <div className="flex gap-2 flex-wrap">
+                  {DURATIONS.map((d) => (
+                    <button
+                      key={d} type="button" onClick={() => setContinueDays(d)}
+                      className={cn(
+                        "h-9 px-4 rounded-lg border text-sm font-bold transition-colors",
+                        continueDays === d
+                          ? "border-[#056abf] bg-blue-50 text-[#056abf]"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                      )}
+                    >
+                      {d === 1 ? "1 day" : d === 7 ? "1 week" : d === 14 ? "2 weeks" : d === 30 ? "30 days" : `${d} days`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {pricing && continueCost !== null && (
+                <div className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
+                  <span className="text-sm font-bold text-slate-600">
+                    Total {continuePayMethod === "card" ? "charged to card" : "deducted from balance"}
+                  </span>
+                  <span className="text-lg font-black text-slate-900">{fmtCost(continueCost, pricing.currency)}</span>
+                </div>
+              )}
+
+              {cfg && (cfg.payWithBalance || cfg.payWithCard) && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Payment method</label>
+                  <div className="flex gap-2">
+                    {cfg.payWithBalance && (
+                      <button
+                        type="button" onClick={() => setContinuePayMethod("balance")}
+                        className={cn(
+                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
+                          continuePayMethod === "balance"
+                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        Store balance
+                      </button>
+                    )}
+                    {cfg.payWithCard && (
+                      <button
+                        type="button" onClick={() => setContinuePayMethod("card")}
+                        className={cn(
+                          "flex-1 h-10 rounded-lg border text-sm font-bold transition-colors",
+                          continuePayMethod === "card"
+                            ? "border-[#056abf] bg-blue-50 text-[#056abf]"
+                            : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                        )}
+                      >
+                        Card
+                      </button>
+                    )}
+                  </div>
+                  {fin && continuePayMethod === "balance" && (
+                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
+                      Available balance: {fmtCost(fin.withdrawable, pricing?.currency ?? "")}
+                    </p>
+                  )}
+                </div>
+              )}
+              {!cfg?.payWithBalance && !cfg?.payWithCard && (
+                <p className="text-sm font-bold text-red-600">Promotion payments are not enabled right now.</p>
+              )}
+              {continueError && <p className="text-sm font-bold text-red-600">{continueError}</p>}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setContinueAd(null)}
+                  className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={payToContinue}
+                  disabled={continueSubmitting || (!cfg?.payWithBalance && !cfg?.payWithCard)}
+                  className="flex-1 h-10 rounded-lg bg-[#056abf] text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {continueSubmitting ? "Starting..." : "Pay to continue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Ad Modal */}
       {editAd && (
