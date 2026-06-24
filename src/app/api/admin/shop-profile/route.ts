@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const DEFAULT_ADMIN_URL = "https://add.min.swiftrunapp.com";
+const DEFAULT_ADMIN_URL = "https://api.swiftrunapp.com";
 
 export async function POST(request: Request) {
   const adminUrl = (process.env.ADMIN_BACKEND_URL || DEFAULT_ADMIN_URL).replace(/\/$/, "");

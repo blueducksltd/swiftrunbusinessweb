@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://add.min.swiftrunapp.com").replace(/\/$/, "");
+const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://api.swiftrunapp.com").replace(/\/$/, "");
 
 // Live Stripe Connect status for a shop (connected / verified / requirements).
 // Django refreshes the stored verification flag from Stripe on each call.

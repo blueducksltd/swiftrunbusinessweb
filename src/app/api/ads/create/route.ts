@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
-const DJANGO_BASE_URL = "https://add.min.swiftrunapp.com";
+const DJANGO_BASE_URL = "https://api.swiftrunapp.com";
 
 /**
  * The only writer of BusinessAds documents. Validates everything server-side

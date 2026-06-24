@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://add.min.swiftrunapp.com").replace(/\/$/, "");
+const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://api.swiftrunapp.com").replace(/\/$/, "");
 
 // Proxies a Stripe Connect onboarding request for a shop to Django, which
 // creates (or reuses) the Connect account and returns a Stripe-hosted

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://add.min.swiftrunapp.com").replace(/\/$/, "");
+const ADMIN_URL = (process.env.ADMIN_BACKEND_URL || "https://api.swiftrunapp.com").replace(/\/$/, "");
 
 // Forwards a business payout request to Django. Ownership is enforced there
 // from the owner's Firebase ID token (passed through as the Authorization
