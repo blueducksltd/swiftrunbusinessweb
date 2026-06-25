@@ -123,7 +123,9 @@ export interface ErrandOrder {
   tax: number;
   total: number;
   status: ErrandStatus;
-  paymentStatus: string;
+  paymentStatus: string | boolean;
+  paymentVerified?: boolean;
+  isPaymentDraft?: boolean;
   paymentReference: string;
   receiverName: string;
   receiverPhone: string;
@@ -264,11 +266,20 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
   });
 }
 
+export function isConfirmedErrandOrder(data: Record<string, unknown>): boolean {
+  const status = String(data.status ?? "").toLowerCase();
+  if (!status || status === "payment_pending" || status === "payment_failed") return false;
+  if (data.isPaymentDraft === true) return false;
+  const paymentStatus = data.paymentStatus;
+  const paidByStatus =
+    paymentStatus === true || String(paymentStatus ?? "").toLowerCase() === "paid";
+  return paidByStatus || data.paymentVerified === true;
+}
+
 function snapshotToOrders(snap: QuerySnapshot<DocumentData>): ErrandOrder[] {
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return { id: d.id, ...data } as ErrandOrder;
-  });
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as ErrandOrder))
+    .filter((order) => isConfirmedErrandOrder(order as unknown as Record<string, unknown>));
 }
 
 // ── Products ───────────────────────────────────────────────────────────────
@@ -353,7 +364,7 @@ export function subscribeToOrders(
   );
 
   let initialized = false;
-  const knownIds = new Set<string>();
+  const knownConfirmedIds = new Set<string>();
 
   return onSnapshot(q, (snap) => {
     const orders = snapshotToOrders(snap).sort(
@@ -362,10 +373,12 @@ export function subscribeToOrders(
     const newOrderIds: string[] = [];
 
     snap.docChanges().forEach((change) => {
-      if (change.type === "added" && initialized && !knownIds.has(change.doc.id)) {
+      const data = { id: change.doc.id, ...change.doc.data() };
+      const confirmed = isConfirmedErrandOrder(data);
+      if (confirmed && initialized && !knownConfirmedIds.has(change.doc.id)) {
         newOrderIds.push(change.doc.id);
       }
-      knownIds.add(change.doc.id);
+      if (confirmed) knownConfirmedIds.add(change.doc.id);
     });
 
     initialized = true;

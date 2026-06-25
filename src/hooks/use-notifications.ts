@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { fmtCurrency } from "@/lib/currency";
+import { isConfirmedErrandOrder } from "@/lib/firestore";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ const notifDoc = (shopId: string, id: string) =>
 export function useNotifications(shopId: string, shopEmail: string, shopCurrency?: string) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const ordersReady = useRef(false);
+  const confirmedOrderIds = useRef<Set<string>>(new Set());
   const productsReady = useRef(false);
   const reviewsReady = useRef(false);
   const prevStocks = useRef<Map<string, { stock: number; available: boolean }>>(new Map());
@@ -152,6 +154,8 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
       );
       for (const d of ordersSnap.docs) {
         const data = d.data();
+        if (!isConfirmedErrandOrder(data)) continue;
+        confirmedOrderIds.current.add(d.id);
         const ts: number =
           data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
         if (ts <= since) continue;
@@ -236,6 +240,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
   useEffect(() => {
     if (!shopId) return;
     ordersReady.current = false;
+    confirmedOrderIds.current = new Set();
     const q = query(
       collection(db, "ErrandOrders"),
       where("shopId", "==", shopId),
@@ -246,10 +251,14 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         if (!ordersReady.current) return;
         const d = change.doc.data();
         const id = change.doc.id;
+        const confirmed = isConfirmedErrandOrder(d);
+        if (!confirmed) return;
+        const firstConfirmed = !confirmedOrderIds.current.has(id);
+        confirmedOrderIds.current.add(id);
         const num = d.orderNumber ?? id.slice(0, 6).toUpperCase();
         const amt = fmtCurrency(d.total ?? 0, shopCurrency);
-        if (change.type === "added") {
-          push({ id: `order_new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} — ${amt}`, ts: Date.now() });
+        if (firstConfirmed) {
+          push({ id: `order_new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} - ${amt}`, ts: Date.now() });
         } else if (change.type === "modified") {
           if (d.status === "delivered") {
             push({ id: `done_${id}`, type: "order_delivered", title: "Order Completed", subtitle: `#${num} — ${amt}`, ts: Date.now() });
@@ -262,7 +271,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
       });
       ordersReady.current = true;
     });
-    return () => { unsub(); ordersReady.current = false; };
+    return () => { unsub(); ordersReady.current = false; confirmedOrderIds.current = new Set(); };
   }, [shopId, push]);
 
   // ── Products stream ────────────────────────────────────────────────────
