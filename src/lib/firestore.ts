@@ -120,6 +120,11 @@ export interface ErrandOrder {
   items: OrderItem[];
   subtotal: number;
   deliveryFee: number;
+  serviceCharge?: number;
+  paymentProcessingFee?: number;
+  businessGross?: number;
+  businessCommission?: number;
+  businessNet?: number;
   tax: number;
   total: number;
   status: ErrandStatus;
@@ -274,6 +279,18 @@ export function isConfirmedErrandOrder(data: Record<string, unknown>): boolean {
   const paidByStatus =
     paymentStatus === true || String(paymentStatus ?? "").toLowerCase() === "paid";
   return paidByStatus || data.paymentVerified === true;
+}
+
+export function storeOrderAmount(order: Pick<ErrandOrder, "businessGross" | "subtotal" | "items">): number {
+  const businessGross = Number(order.businessGross ?? 0);
+  if (businessGross > 0) return businessGross;
+  const subtotal = Number(order.subtotal ?? 0);
+  if (subtotal > 0) return subtotal;
+  return (order.items ?? []).reduce((sum, item) => {
+    const lineTotal = Number(item.total ?? 0);
+    if (lineTotal > 0) return sum + lineTotal;
+    return sum + Number(item.price ?? 0) * Number(item.qty ?? 1);
+  }, 0);
 }
 
 function snapshotToOrders(snap: QuerySnapshot<DocumentData>): ErrandOrder[] {
@@ -665,7 +682,7 @@ export async function getOrderStats(shopId: string) {
   const cancelled = orders.filter((o) => o.status === "cancelled").length;
   const totalRevenue = orders
     .filter((o) => o.status === "delivered")
-    .reduce((s, o) => s + (o.total ?? 0), 0);
+    .reduce((s, o) => s + storeOrderAmount(o), 0);
   const avgOrder = completed > 0 ? Math.round(totalRevenue / completed) : 0;
   return { total, completed, pending, cancelled, totalRevenue, avgOrder, orders };
 }

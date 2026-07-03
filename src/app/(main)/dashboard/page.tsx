@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
-import { getOrderStats, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
+import { getOrderStats, storeOrderAmount, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
 import { getRole, getShopId, getShopName } from "@/lib/session";
 
 type LiveOrder = {
@@ -61,7 +61,7 @@ export default function DashboardPage() {
           id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
           customer: o.customerName || "Customer",
           items: o.items.map((i) => i.name).join(", ") || "—",
-          totalRaw: o.total ?? 0,
+          totalRaw: storeOrderAmount(o),
           status: o.status === "ready" ? "Ready" : o.status === "picked_up" ? "Picked up" : "Preparing",
           time: timeAgo(o.createdAt),
         }));
@@ -91,7 +91,7 @@ export default function DashboardPage() {
       if (!created) continue;
       const idx = (now.getFullYear() - created.getFullYear()) * 12 +
         (now.getMonth() - created.getMonth());
-      if (idx >= 0 && idx < 12) buckets[11 - idx].total += o.total ?? 0;
+      if (idx >= 0 && idx < 12) buckets[11 - idx].total += storeOrderAmount(o);
     }
     const max = Math.max(1, ...buckets.map((b) => b.total));
     return buckets.map((b) => ({
@@ -103,7 +103,7 @@ export default function DashboardPage() {
   const statCards = isOwner
     ? [
         { label: "Total orders", value: String(stats.total), delta: `${stats.pending} active` },
-        { label: "Revenue", value: fmt(stats.totalRevenue, shopCurrency), delta: `${stats.completed} completed` },
+        { label: "Store sales", value: fmt(stats.totalRevenue, shopCurrency), delta: `${stats.completed} completed` },
         { label: "Avg order", value: fmt(stats.avgOrder, shopCurrency), delta: `${stats.cancelled} cancelled` },
         { label: "Pending", value: String(stats.pending), delta: "active now" },
       ]
@@ -170,7 +170,7 @@ export default function DashboardPage() {
 
           {isOwner && (
             <div className="rounded-xl border border-slate-200 bg-[#071a2f] p-5 text-white">
-              <p className="text-sm font-semibold text-blue-200">Total revenue</p>
+              <p className="text-sm font-semibold text-blue-200">Store sales</p>
               <p className="mt-3 text-4xl font-black tabular-nums">{fmt(stats.totalRevenue, shopCurrency)}</p>
               <div className="mt-6 flex h-40 items-end gap-2">
                 {revenueBars.map((bar, index) => (

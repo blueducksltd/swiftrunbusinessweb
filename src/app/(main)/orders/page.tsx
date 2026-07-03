@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/cn";
-import { subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
+import { storeOrderAmount, subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
 
@@ -19,7 +19,12 @@ type DisplayOrder = {
   driverId: string | null;
   shopName: string;
   qty: number;
-  totalRaw: number;
+  storeAmountRaw: number;
+  customerPaidRaw: number;
+  deliveryFeeRaw: number;
+  serviceFeeRaw: number;
+  processingFeeRaw: number;
+  taxRaw: number;
   status: OrderStatus;
   date: string;
   color: string;
@@ -201,7 +206,12 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
     driverId: o.driverId ?? null,
     shopName: o.shopName ?? "",
     qty: o.items.reduce((s, i) => s + (i.qty ?? 1), 0),
-    totalRaw: o.total ?? 0,
+    storeAmountRaw: storeOrderAmount(o),
+    customerPaidRaw: o.total ?? 0,
+    deliveryFeeRaw: o.deliveryFee ?? 0,
+    serviceFeeRaw: o.serviceCharge ?? 0,
+    processingFeeRaw: o.paymentProcessingFee ?? 0,
+    taxRaw: o.tax ?? 0,
     status,
     date: fmtDate(o.createdAt),
     color: STATUS_COLORS[status],
@@ -451,7 +461,7 @@ export default function OrdersPage() {
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Order ID</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Product</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Qty</th>
-                  <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Price</th>
+                  <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Store Sale</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Status</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3">Date</th>
                   <th className="text-left text-xs font-bold text-slate-500 px-4 py-3 w-10" />
@@ -470,7 +480,7 @@ export default function OrdersPage() {
                     <td className="px-4 py-3 font-black text-slate-900 text-xs">{o.id}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800 max-w-[200px] truncate">{o.product}</td>
                     <td className="px-4 py-3 text-slate-600">{o.qty}</td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{fmt(o.totalRaw, shopCurrency)}</td>
+                    <td className="px-4 py-3 font-bold text-slate-900">{fmt(o.storeAmountRaw, shopCurrency)}</td>
                     <td className="px-4 py-3">
                       <span className={cn("inline-flex px-2.5 py-1 rounded-full text-xs font-bold", STATUS_STYLES[o.status])}>
                         {o.status}
@@ -707,8 +717,26 @@ export default function OrdersPage() {
               )}
 
               <div className="flex items-center justify-between py-3 border-t border-slate-100">
-                <p className="text-sm text-slate-500">Total</p>
-                <p className="font-black text-slate-900">{fmt(detailOrder.totalRaw, shopCurrency)}</p>
+                <p className="text-sm text-slate-500">Store items</p>
+                <p className="font-black text-slate-900">{fmt(detailOrder.storeAmountRaw, shopCurrency)}</p>
+              </div>
+              {detailOrder.deliveryFeeRaw > 0 && (
+                <div className="flex items-center justify-between py-2 border-t border-slate-100">
+                  <p className="text-sm text-slate-500">Delivery fee</p>
+                  <p className="font-bold text-slate-700">{fmt(detailOrder.deliveryFeeRaw, shopCurrency)}</p>
+                </div>
+              )}
+              {(detailOrder.serviceFeeRaw + detailOrder.processingFeeRaw + detailOrder.taxRaw) > 0 && (
+                <div className="flex items-center justify-between py-2 border-t border-slate-100">
+                  <p className="text-sm text-slate-500">Service/processing fees</p>
+                  <p className="font-bold text-slate-700">
+                    {fmt(detailOrder.serviceFeeRaw + detailOrder.processingFeeRaw + detailOrder.taxRaw, shopCurrency)}
+                  </p>
+                </div>
+              )}
+              <div className="flex items-center justify-between py-3 border-t border-slate-100">
+                <p className="text-sm text-slate-500">Customer paid</p>
+                <p className="font-black text-slate-900">{fmt(detailOrder.customerPaidRaw, shopCurrency)}</p>
               </div>
             </div>
 

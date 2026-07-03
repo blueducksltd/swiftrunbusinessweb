@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { fmtCurrency } from "@/lib/currency";
+import { storeOrderAmount, type ErrandOrder } from "@/lib/firestore";
 import { isConfirmedErrandOrder } from "@/lib/firestore";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -160,7 +161,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
           data.createdAt?.toMillis?.() ?? (data.createdAt?._seconds ?? 0) * 1000;
         if (ts <= since) continue;
         const num = data.orderNumber ?? d.id.slice(0, 6).toUpperCase();
-        const amt = fmtCurrency(data.total ?? 0, shopCurrency);
+        const amt = fmtCurrency(storeOrderAmount(data as ErrandOrder), shopCurrency);
         batch.set(notifDoc(shopId, `order_new_${d.id}`), {
           type: "order_new",
           title: "New Order",
@@ -256,7 +257,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         const firstConfirmed = !confirmedOrderIds.current.has(id);
         confirmedOrderIds.current.add(id);
         const num = d.orderNumber ?? id.slice(0, 6).toUpperCase();
-        const amt = fmtCurrency(d.total ?? 0, shopCurrency);
+        const amt = fmtCurrency(storeOrderAmount(d as ErrandOrder), shopCurrency);
         if (firstConfirmed) {
           push({ id: `order_new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} - ${amt}`, ts: Date.now() });
         } else if (change.type === "modified") {

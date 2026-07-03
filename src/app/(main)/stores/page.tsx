@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
-import { subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
+import { storeOrderAmount, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 
 function fmtTime(ts: unknown): string {
@@ -109,8 +109,8 @@ export default function SalesPage() {
   const completed    = orders.filter((o) => o.status === "delivered" || o.status === "picked_up");
   const cancelled    = orders.filter((o) => o.status === "cancelled");
 
-  // Revenue (from ALL completed orders)
-  const grossSales   = allCompleted.reduce((s, o) => s + (o.total ?? 0), 0);
+  // Store sales from completed orders. This excludes delivery, service, and processing fees.
+  const grossSales   = allCompleted.reduce((s, o) => s + storeOrderAmount(o), 0);
   const commission   = Math.round(grossSales * (commissionPct / 100));
   const netEarnings  = grossSales - commission;
 
@@ -212,7 +212,7 @@ export default function SalesPage() {
         <p className="text-sm font-bold text-slate-700 mb-3">Revenue Breakdown</p>
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {[
-            { label: "Gross Sales",         value: fmtCurrencyCompact(grossSales, shopCurrency) },
+            { label: "Store Sales",         value: fmtCurrencyCompact(grossSales, shopCurrency) },
             { label: "Platform Commission", value: commissionPct > 0 ? fmtCurrencyCompact(commission, shopCurrency) : "—" },
             { label: "Ad Spend",            value: fin ? fmtCurrencyCompact(fin.adSpend, shopCurrency) : "—" },
             { label: "Available to Withdraw", value: fin ? fmtCurrencyCompact(fin.withdrawable, shopCurrency) : fmtCurrencyCompact(netEarnings, shopCurrency) },
