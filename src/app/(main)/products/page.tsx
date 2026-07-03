@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import {
   subscribeToProducts,
   subscribeToShop,
+  subscribeToShopType,
   subscribeToShopCategories,
   addProduct,
   updateProduct,
@@ -15,6 +16,7 @@ import {
   type Product,
   type ProductOption,
   type ShopCategory,
+  type ShopTypeConfig,
 } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
@@ -100,6 +102,11 @@ function formatMoney(amount: number, currency: string) {
   return fmtCurrency(amount ?? 0, currency || undefined);
 }
 
+function defaultAddonsEnabledForType(id: string, name: string) {
+  const normalized = `${id} ${name}`.toLowerCase();
+  return normalized.includes("restaurant") || normalized.includes("laundry");
+}
+
 function toDisplay(p: Product, currency: string): DisplayProduct {
   const status = p.status ?? "Active";
   const code = p.currency || currency;
@@ -125,6 +132,7 @@ export default function ProductsPage() {
   const [categories, setCategories] = useState<ShopCategory[]>([]);
   const [shopTypeId, setShopTypeId] = useState("");
   const [shopTypeName, setShopTypeName] = useState("");
+  const [shopTypeConfig, setShopTypeConfig] = useState<ShopTypeConfig | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [imageError, setImageError] = useState("");
@@ -175,6 +183,15 @@ export default function ProductsPage() {
     return () => unsub();
   }, [shopTypeId]);
 
+  useEffect(() => {
+    if (!shopTypeId) {
+      setShopTypeConfig(null);
+      return;
+    }
+    const unsub = subscribeToShopType(shopTypeId, setShopTypeConfig);
+    return () => unsub();
+  }, [shopTypeId]);
+
   const displayed = filterStatus
     ? products.filter((p) => p.status === filterStatus)
     : products;
@@ -183,7 +200,23 @@ export default function ProductsPage() {
     shopTypeId.trim().toLowerCase() === "laundry" ||
     shopTypeName.trim().toLowerCase() === "laundry";
 
+  const addonsEnabled =
+    shopTypeConfig?.addonsEnabled === true
+      ? true
+      : shopTypeConfig?.addonsEnabled === false
+        ? false
+        : defaultAddonsEnabledForType(shopTypeId, shopTypeName);
+
+  const addTabs = addonsEnabled ? (["detail", "required"] as const) : (["detail"] as const);
+  const editTabs = addonsEnabled ? (["detail", "required"] as const) : (["detail"] as const);
+
+  useEffect(() => {
+    if (!addonsEnabled && tab === "required") setTab("detail");
+    if (!addonsEnabled && editTab === "required") setEditTab("detail");
+  }, [addonsEnabled, tab, editTab]);
+
   function buildOptions(list: OptionFormState[]): ProductOption[] {
+    if (!addonsEnabled) return [];
     return list
       .filter((o) => o.name.trim())
       .map((o) => ({
@@ -432,11 +465,11 @@ export default function ProductsPage() {
       unit: p.raw.unit,
     });
     setEditLaundryForm(laundryStateFromProduct(p.raw));
-    setEditOptions((p.raw.options ?? []).map((o) => ({
+    setEditOptions(addonsEnabled ? (p.raw.options ?? []).map((o) => ({
       name: o.name,
       price: o.price.toString(),
       scope: o.scope ?? "item",
-    })));
+    })) : []);
     setEditImageFile(null);
     setEditImagePreview(p.raw.imageUrl ?? "");
     setEditImageError("");
@@ -500,7 +533,7 @@ export default function ProductsPage() {
         categoryId: editForm.categoryId,
         categoryName: editForm.category,
         imageUrl,
-        options: cleanOptions,
+        ...(addonsEnabled ? { options: cleanOptions } : {}),
         ...buildLaundryPayload(editLaundryForm),
       });
       resetEditForm();
@@ -626,7 +659,7 @@ export default function ProductsPage() {
                         </svg>
                       </td>
                     </tr>
-                    {p.raw.options && p.raw.options.length > 0 && (
+                    {addonsEnabled && p.raw.options && p.raw.options.length > 0 && (
                       <tr
                         onClick={() => setDetailProduct(p)}
                         className="cursor-pointer hover:bg-slate-50 transition-colors bg-slate-50/50"
@@ -674,7 +707,7 @@ export default function ProductsPage() {
 
             {/* Tabs */}
             <div className="flex border-b border-slate-100 px-6">
-              {(["detail", "required"] as const).map((t) => (
+              {addTabs.map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
@@ -905,7 +938,7 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex border-b border-slate-100 px-6">
-              {(["detail", "required"] as const).map((t) => (
+              {editTabs.map((t) => (
                 <button
                   key={t}
                   onClick={() => setEditTab(t)}
@@ -1192,7 +1225,7 @@ export default function ProductsPage() {
                   )}
                 </div>
               )}
-              {detailProduct.raw.options && detailProduct.raw.options.length > 0 && (
+              {addonsEnabled && detailProduct.raw.options && detailProduct.raw.options.length > 0 && (
                 <div>
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Add-ons</p>
                   <div className="space-y-1.5">

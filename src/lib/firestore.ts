@@ -231,6 +231,12 @@ export interface ShopCategory {
   createdAt: Timestamp | null;
 }
 
+export interface ShopTypeConfig {
+  id: string;
+  name: string;
+  addonsEnabled?: boolean;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function productStatus(stock: number, isAvailable: boolean): ProductStatus {
@@ -580,6 +586,21 @@ export function subscribeToShop(
   return onSnapshot(doc(db, "Shops", shopId), (snap) => {
     if (!snap.exists()) { callback(null); return; }
     callback({ id: snap.id, ...snap.data() } as ShopProfile);
+  });
+}
+
+export function subscribeToShopType(
+  shopTypeId: string,
+  callback: (shopType: ShopTypeConfig | null) => void
+) {
+  return onSnapshot(doc(db, "ShopTypes", shopTypeId), (snap) => {
+    if (!snap.exists()) { callback(null); return; }
+    const data = snap.data();
+    callback({
+      id: snap.id,
+      name: data.name ?? "",
+      addonsEnabled: typeof data.addonsEnabled === "boolean" ? data.addonsEnabled : undefined,
+    });
   });
 }
 
