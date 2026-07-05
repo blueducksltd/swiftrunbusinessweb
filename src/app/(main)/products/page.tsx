@@ -11,7 +11,7 @@ import {
   addProduct,
   updateProduct,
   deleteProduct,
-  uploadProductImage,
+  uploadProductImageSet,
   validateBusinessImageFile,
   type Product,
   type ProductOption,
@@ -412,9 +412,11 @@ export default function ProductsPage() {
     if (!shopId) return;
     setSaving(true);
     try {
-      let imageUrl = "";
+      let imageUrls = { imageUrl: "", thumbnailUrl: "", mediumImageUrl: "" };
       try {
-        imageUrl = imageFile ? await uploadProductImage(shopId, imageFile) : "";
+        imageUrls = imageFile
+          ? await uploadProductImageSet(shopId, imageFile)
+          : imageUrls;
       } catch (err) {
         setImageError(err instanceof Error ? err.message : "The image upload failed. Please check your connection and try again.");
         setTab("detail");
@@ -429,7 +431,9 @@ export default function ProductsPage() {
         price: parseFloat(form.price) || 0,
         currency: shopCurrency,
         unit: form.unit || "unit",
-        imageUrl,
+        imageUrl: imageUrls.imageUrl,
+        thumbnailUrl: imageUrls.thumbnailUrl,
+        mediumImageUrl: imageUrls.mediumImageUrl,
         isAvailable: true,
         isActive: true,
         stock: parseInt(form.qty) || 0,
@@ -511,10 +515,14 @@ export default function ProductsPage() {
     if (!shopId) return;
     setEditSaving(true);
     try {
-      let imageUrl = editProduct.raw.imageUrl ?? "";
+      let imageUrls = {
+        imageUrl: editProduct.raw.imageUrl ?? "",
+        thumbnailUrl: editProduct.raw.thumbnailUrl ?? "",
+        mediumImageUrl: editProduct.raw.mediumImageUrl ?? "",
+      };
       if (editImageFile) {
         try {
-          imageUrl = await uploadProductImage(shopId, editImageFile);
+          imageUrls = await uploadProductImageSet(shopId, editImageFile);
         } catch (err) {
           setEditImageError(err instanceof Error ? err.message : "The image upload failed. Please check your connection and try again.");
           setEditTab("detail");
@@ -532,7 +540,9 @@ export default function ProductsPage() {
         unit: editForm.unit || "unit",
         categoryId: editForm.categoryId,
         categoryName: editForm.category,
-        imageUrl,
+        imageUrl: imageUrls.imageUrl,
+        thumbnailUrl: imageUrls.thumbnailUrl,
+        mediumImageUrl: imageUrls.mediumImageUrl,
         ...(addonsEnabled ? { options: cleanOptions } : {}),
         ...buildLaundryPayload(editLaundryForm),
       });
@@ -626,8 +636,8 @@ export default function ProductsPage() {
                       className={cn("hover:bg-slate-50 transition-colors cursor-pointer", idx > 0 && "border-t border-slate-100")}
                     >
                       <td className="px-4 py-2">
-                        {p.raw.imageUrl ? (
-                          <img src={p.raw.imageUrl} alt={p.name} style={{width:72,height:72,minWidth:72,objectFit:"cover",borderRadius:10}} />
+                        {(p.raw.thumbnailUrl || p.raw.imageUrl) ? (
+                          <img src={p.raw.thumbnailUrl || p.raw.imageUrl} alt={p.name} style={{width:72,height:72,minWidth:72,objectFit:"cover",borderRadius:10}} />
                         ) : (
                           <div className={cn("rounded-lg shrink-0", p.color)} style={{width:72,height:72,minWidth:72,borderRadius:10}} />
                         )}
@@ -1164,8 +1174,8 @@ export default function ProductsPage() {
               </button>
             </div>
             <div className="px-6 py-5 space-y-4">
-              {detailProduct.raw.imageUrl ? (
-                <img src={detailProduct.raw.imageUrl} alt={detailProduct.name} className="h-32 w-full rounded-xl object-cover" />
+              {(detailProduct.raw.mediumImageUrl || detailProduct.raw.imageUrl) ? (
+                <img src={detailProduct.raw.mediumImageUrl || detailProduct.raw.imageUrl} alt={detailProduct.name} className="h-32 w-full rounded-xl object-cover" />
               ) : (
                 <div className={cn("h-32 rounded-xl w-full", detailProduct.color)} />
               )}

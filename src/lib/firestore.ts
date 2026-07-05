@@ -22,6 +22,9 @@ import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export const MAX_BUSINESS_IMAGE_SIZE = 20 * 1024 * 1024;
+const PRODUCT_THUMBNAIL_MAX_BYTES = 60 * 1024;
+const PRODUCT_MEDIUM_MAX_BYTES = 180 * 1024;
+const BUSINESS_SINGLE_IMAGE_MAX_BYTES = 250 * 1024;
 const ALLOWED_BUSINESS_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_BUSINESS_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 
@@ -62,6 +65,8 @@ export interface Product {
   currency?: string;
   unit: string;
   imageUrl: string;
+  thumbnailUrl?: string;
+  mediumImageUrl?: string;
   isAvailable: boolean;
   isActive: boolean;
   stock: number;
@@ -259,6 +264,8 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
       price: data.price ?? 0,
       unit: data.unit ?? "",
       imageUrl: data.imageUrl ?? "",
+      thumbnailUrl: data.thumbnailUrl ?? "",
+      mediumImageUrl: data.mediumImageUrl ?? "",
       isAvailable: data.isAvailable ?? true,
       isActive: data.isActive ?? true,
       stock: data.stock ?? 0,
@@ -327,6 +334,37 @@ export function subscribeToProducts(
 
 export async function uploadProductImage(shopId: string, file: File): Promise<string> {
   validateBusinessImageFile(file);
+  const resized = await resizeProductImage(file, 1200, 0.78, BUSINESS_SINGLE_IMAGE_MAX_BYTES);
+  const safeName = file.name
+    .replace(/\.[^/.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 48) || "image";
+  const uniquePart = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const imageRef = ref(storage, `shops/${shopId}/products/${uniquePart}-${safeName}.${resized.extension}`);
+  await uploadBytes(imageRef, resized.blob, {
+    contentType: resized.contentType,
+    customMetadata: { shopId, maxBytes: String(BUSINESS_SINGLE_IMAGE_MAX_BYTES) },
+  });
+  return getDownloadURL(imageRef);
+}
+
+export type ProductImageUrls = {
+  imageUrl: string;
+  thumbnailUrl: string;
+  mediumImageUrl: string;
+};
+
+type ResizedImage = {
+  blob: Blob;
+  contentType: string;
+  extension: string;
+};
+
+function productImageNameParts(file: File) {
   const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const safeName = file.name
     .replace(/\.[^/.]+$/, "")
@@ -337,12 +375,142 @@ export async function uploadProductImage(shopId: string, file: File): Promise<st
   const uniquePart = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const imageRef = ref(storage, `shops/${shopId}/products/${uniquePart}-${safeName}.${ext}`);
-  await uploadBytes(imageRef, file, {
-    contentType: file.type || "image/jpeg",
-    customMetadata: { shopId },
+  return { ext, safeName, uniquePart };
+}
+
+async function loadImageBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === "function") {
+    return createImageBitmap(file);
+  }
+
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("The image could not be prepared. Please try another file."));
+    };
+    img.src = objectUrl;
+  });
+}
+
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+}
+
+async function resizeProductImage(
+  file: File,
+  maxSize: number,
+  quality: number,
+  maxBytes?: number
+): Promise<ResizedImage> {
+  const source = await loadImageBitmap(file);
+  const width = source.width;
+  const height = source.height;
+  const scale = Math.min(1, maxSize / Math.max(width, height));
+  const targetWidth = Math.max(1, Math.round(width * scale));
+  const targetHeight = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("The image could not be prepared. Please try again.");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+  if (typeof ImageBitmap !== "undefined" && source instanceof ImageBitmap) {
+    source.close();
+  }
+
+  let workingCanvas = canvas;
+  let blob = await canvasToJpegBlob(workingCanvas, quality);
+  let currentQuality = quality;
+  let shrinkAttempts = 0;
+
+  while (blob && maxBytes && blob.size > maxBytes && currentQuality > 0.45) {
+    currentQuality = Math.max(0.45, currentQuality - 0.08);
+    blob = await canvasToJpegBlob(workingCanvas, currentQuality);
+  }
+
+  while (blob && maxBytes && blob.size > maxBytes && shrinkAttempts < 5) {
+    const nextWidth = Math.max(1, Math.round(workingCanvas.width * 0.85));
+    const nextHeight = Math.max(1, Math.round(workingCanvas.height * 0.85));
+    const smallerCanvas = document.createElement("canvas");
+    smallerCanvas.width = nextWidth;
+    smallerCanvas.height = nextHeight;
+    const smallerCtx = smallerCanvas.getContext("2d");
+    if (!smallerCtx) break;
+    smallerCtx.fillStyle = "#ffffff";
+    smallerCtx.fillRect(0, 0, nextWidth, nextHeight);
+    smallerCtx.drawImage(workingCanvas, 0, 0, nextWidth, nextHeight);
+    workingCanvas = smallerCanvas;
+    blob = await canvasToJpegBlob(workingCanvas, 0.45);
+    shrinkAttempts += 1;
+  }
+
+  if (!blob) throw new Error("The image could not be resized. Please try another file.");
+  if (maxBytes && blob.size > maxBytes) {
+    throw new Error("This image is too complex to compress safely. Please choose a simpler or smaller image.");
+  }
+  return { blob, contentType: "image/jpeg", extension: "jpg" };
+}
+
+async function uploadProductImageBlob(
+  shopId: string,
+  path: string,
+  blob: Blob,
+  contentType: string,
+  variant: "thumbnail" | "medium"
+) {
+  const imageRef = ref(storage, path);
+  await uploadBytes(imageRef, blob, {
+    contentType,
+    customMetadata: { shopId, variant },
   });
   return getDownloadURL(imageRef);
+}
+
+export async function uploadProductImageSet(shopId: string, file: File): Promise<ProductImageUrls> {
+  validateBusinessImageFile(file);
+  const { ext, safeName, uniquePart } = productImageNameParts(file);
+  const baseName = `${uniquePart}-${safeName}`;
+  const originalRef = ref(storage, `shops/${shopId}/products/${baseName}.${ext}`);
+
+  const [thumbnail, medium] = await Promise.all([
+    resizeProductImage(file, 480, 0.72, PRODUCT_THUMBNAIL_MAX_BYTES),
+    resizeProductImage(file, 960, 0.78, PRODUCT_MEDIUM_MAX_BYTES),
+  ]);
+
+  await uploadBytes(originalRef, file, {
+    contentType: file.type || "image/jpeg",
+    customMetadata: { shopId, variant: "original" },
+  });
+
+  const [imageUrl, thumbnailUrl, mediumImageUrl] = await Promise.all([
+    getDownloadURL(originalRef),
+    uploadProductImageBlob(
+      shopId,
+      `shops/${shopId}/products/thumbnails/${baseName}-thumbnail.${thumbnail.extension}`,
+      thumbnail.blob,
+      thumbnail.contentType,
+      "thumbnail"
+    ),
+    uploadProductImageBlob(
+      shopId,
+      `shops/${shopId}/products/medium/${baseName}-medium.${medium.extension}`,
+      medium.blob,
+      medium.contentType,
+      "medium"
+    ),
+  ]);
+
+  return { imageUrl, thumbnailUrl, mediumImageUrl };
 }
 
 export async function addProduct(
