@@ -88,6 +88,17 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   Cancelled:   "bg-red-100",
 };
 
+function orderItemsSearchText(items: ErrandOrder["items"] = []) {
+  return items
+    .map((item) => {
+      const addOns = item.selectedOptions
+        ?.map((opt) => `${opt?.name ?? ""} ${opt?.qty ? `x${opt.qty}` : ""}`)
+        .join(" ");
+      return `${item.name} ${item.unit ?? ""} ${addOns ?? ""}`;
+    })
+    .join(" ");
+}
+
 function mapStatus(s: ErrandStatus): OrderStatus {
   if (s === "cancelled") return "Cancelled";
   if (s === "picked_up" || s === "delivered" || s === "laundry_picked_up_from_store") return "Picked Up";
@@ -339,7 +350,7 @@ export default function OrdersPage() {
       o.receiverAddress,
       o.status,
       o.firestoreStatus,
-      o.items?.map((item) => `${item.name} ${item.unit ?? ""}`).join(" "),
+      orderItemsSearchText(o.items),
     ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
   });
 
