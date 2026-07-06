@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { getRole, getShopId, getShopName, setSession } from "@/lib/session";
 import { auth as firebaseAuth } from "@/lib/firebase";
 import { subscribeToShop, subscribeToProducts, subscribeToOrders, type Product, type ErrandOrder } from "@/lib/firestore";
@@ -70,6 +70,20 @@ function notifHref(type: NotifType): string {
   }
 }
 
+const PAGE_SEARCH_LABELS: Record<string, string> = {
+  "/orders": "Search orders",
+  "/products": "Search products",
+  "/stores": "Search sales",
+  "/reviews": "Search reviews",
+  "/members": "Search employees",
+  "/promotions": "Search promotions",
+};
+
+function queryHref(path: string, term: string) {
+  const q = term.trim();
+  return q ? `${path}?q=${encodeURIComponent(q)}` : path;
+}
+
 function NotifRow({
   n,
   onClose,
@@ -103,6 +117,8 @@ function NotifRow({
 
 export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [notifOpen, setNotifOpen] = useState(false);
   const [shopName, setShopName] = useState("My Shop");
   const [shopEmail, setShopEmail] = useState("");
@@ -122,6 +138,9 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [allOrders, setAllOrders] = useState<ErrandOrder[]>([]);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const currentSearchLabel = PAGE_SEARCH_LABELS[pathname] ?? "";
+  const canSearchCurrentPage = Boolean(currentSearchLabel);
+  const searchDisabled = pathname === "/dashboard";
 
   const { notifications, unreadCount, markAllRead, markRead } = useNotifications(shopId.current, shopEmail, shopCurrency);
 
@@ -146,6 +165,25 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
     });
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    setSearchQuery(searchParams.get("q") ?? "");
+    setSearchOpen(false);
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
+    if (!canSearchCurrentPage || document.activeElement !== searchWrapRef.current?.querySelector("input")) return;
+    const handle = window.setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      const q = searchQuery.trim();
+      if ((searchParams.get("q") ?? "") === q) return;
+      if (q) params.set("q", q);
+      else params.delete("q");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [canSearchCurrentPage, pathname, router, searchParams, searchQuery]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -172,7 +210,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   }, [searchQuery, allProducts, allOrders])();
 
   const hasHits = hits.products.length > 0 || hits.orders.length > 0;
-  const showDropdown = searchOpen && searchQuery.trim().length >= 2;
+  const showDropdown = !canSearchCurrentPage && searchOpen && searchQuery.trim().length >= 2;
 
   function openNotifications() {
     setNotifOpen(true);
@@ -202,12 +240,19 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
             </svg>
             <input
               type="text"
-              placeholder="Search anything"
+              placeholder={searchDisabled ? "Search unavailable here" : currentSearchLabel || "Search anything"}
               value={searchQuery}
+              disabled={searchDisabled}
               onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(true); }}
               onFocus={() => setSearchOpen(true)}
-              onKeyDown={(e) => e.key === "Escape" && setSearchOpen(false)}
-              className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setSearchOpen(false);
+                if (e.key === "Enter" && canSearchCurrentPage) {
+                  router.replace(queryHref(pathname, searchQuery), { scroll: false });
+                  setSearchOpen(false);
+                }
+              }}
+              className="bg-transparent text-sm text-slate-600 placeholder:text-slate-400 outline-none flex-1 disabled:cursor-not-allowed disabled:text-slate-300"
             />
           </div>
 
@@ -224,7 +269,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                       {hits.products.map((p) => (
                         <button
                           key={p.id}
-                          onClick={() => { setSearchOpen(false); setSearchQuery(""); router.push("/products"); }}
+                          onClick={() => { setSearchOpen(false); router.push(queryHref("/products", searchQuery)); }}
                           className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors"
                         >
                           <div className="size-8 rounded-lg bg-slate-100 grid place-items-center shrink-0">
@@ -249,7 +294,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
                       {hits.orders.map((o) => (
                         <button
                           key={o.id}
-                          onClick={() => { setSearchOpen(false); setSearchQuery(""); router.push("/orders"); }}
+                          onClick={() => { setSearchOpen(false); router.push(queryHref("/orders", searchQuery)); }}
                           className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 text-left transition-colors"
                         >
                           <div className="size-8 rounded-lg bg-slate-100 grid place-items-center shrink-0">

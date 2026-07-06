@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
@@ -60,9 +61,26 @@ function matchesStatus(order: ErrandOrder, filter: StatusFilter): boolean {
   return order.status !== "delivered" && order.status !== "picked_up" && order.status !== "cancelled";
 }
 
+function matchesSearch(order: ErrandOrder, term: string): boolean {
+  if (!term) return true;
+  const extras = order as ErrandOrder & { paymentProvider?: string };
+  return [
+    order.id,
+    order.orderNumber,
+    order.orderCode,
+    order.status,
+    order.customerName,
+    order.customerEmail,
+    order.receiverAddress,
+    extras.paymentProvider,
+    order.items?.map((item) => `${item.name} ${item.unit ?? ""}`).join(" "),
+  ].some((value) => String(value ?? "").toLowerCase().includes(term));
+}
+
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default function SalesPage() {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<ErrandOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [commissionPct, setCommissionPct] = useState(0);
@@ -96,9 +114,10 @@ export default function SalesPage() {
     return () => { unsubOrders(); unsubShop(); cancelled = true; clearInterval(t); };
   }, []);
 
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
   const filtered = useMemo(() =>
-    orders.filter((o) => matchesDate(o, dateFilter) && matchesStatus(o, statusFilter)),
-    [orders, dateFilter, statusFilter]
+    orders.filter((o) => matchesDate(o, dateFilter) && matchesStatus(o, statusFilter) && matchesSearch(o, searchTerm)),
+    [orders, dateFilter, statusFilter, searchTerm]
   );
 
   const allCompleted = orders.filter((o) => o.status === "delivered" || o.status === "picked_up");
@@ -155,7 +174,10 @@ export default function SalesPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-slate-900">All Sales</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{allCompleted.length.toLocaleString()} Completed</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {allCompleted.length.toLocaleString()} Completed
+            {searchTerm ? ` · ${filtered.length} matching "${searchParams.get("q")}"` : ""}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Status filter */}
@@ -234,8 +256,10 @@ export default function SalesPage() {
 
         {salesRows.length === 0 ? (
           <div className="py-16 text-center text-slate-400">
-            <p className="text-sm font-semibold">No sales yet.</p>
-            <p className="text-xs mt-1">Completed orders will appear here.</p>
+            <p className="text-sm font-semibold">{searchTerm ? "No matching sales." : "No sales yet."}</p>
+            <p className="text-xs mt-1">
+              {searchTerm ? "Try another search or clear the search bar." : "Completed orders will appear here."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

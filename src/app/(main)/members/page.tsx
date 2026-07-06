@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import {
   subscribeToMembers,
@@ -14,6 +15,7 @@ import {
 import { getShopId, getShopName } from "@/lib/session";
 
 type Role = "Manager" | "Staff";
+type StatusFilter = "all" | "active" | "suspended";
 
 const ROLE_STYLES: Record<Role, string> = {
   Manager: "bg-blue-50 text-[#056abf]",
@@ -42,6 +44,7 @@ function avatarColor(id: string) {
 }
 
 export default function MembersPage() {
+  const searchParams = useSearchParams();
   const [members, setMembers] = useState<ShopMember[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [rolePickerFor, setRolePickerFor] = useState<string | null>(null);
@@ -61,6 +64,8 @@ export default function MembersPage() {
 
   // Suspend state
   const [suspending, setSuspending] = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState<Role | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   useEffect(() => {
     const shopId = getShopId();
@@ -208,19 +213,55 @@ export default function MembersPage() {
     }
   }
 
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const filteredMembers = members.filter((emp) => {
+    if (roleFilter !== "all" && emp.role !== roleFilter) return false;
+    if (statusFilter === "active" && !emp.isActive) return false;
+    if (statusFilter === "suspended" && emp.isActive) return false;
+    if (!searchTerm) return true;
+    return [
+      emp.firstName,
+      emp.lastName,
+      emp.email,
+      emp.role,
+      emp.isActive ? "active" : "suspended",
+    ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+  });
+
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-slate-900">Employees</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{members.length} team members</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {members.length} team members{searchTerm ? ` · ${filteredMembers.length} matching "${searchParams.get("q")}"` : ""}
+          </p>
         </div>
-        <button
-          onClick={() => setAddOpen(true)}
-          className="h-9 px-5 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
-        >
-          + New Employee
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as Role | "all")}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 outline-none focus:border-[#056abf] cursor-pointer"
+          >
+            <option value="all">All roles</option>
+            {ROLES.map((role) => <option key={role} value={role}>{role}</option>)}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 outline-none focus:border-[#056abf] cursor-pointer"
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+          </select>
+          <button
+            onClick={() => setAddOpen(true)}
+            className="h-9 px-5 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+          >
+            + New Employee
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -229,6 +270,11 @@ export default function MembersPage() {
           <div className="py-16 text-center text-slate-400">
             <p className="text-sm font-semibold">No team members yet.</p>
             <p className="text-xs mt-1">Add your first employee with the button above.</p>
+          </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="py-16 text-center text-slate-400">
+            <p className="text-sm font-semibold">No matching employees.</p>
+            <p className="text-xs mt-1">Try another search or adjust the filters.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -245,7 +291,7 @@ export default function MembersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {members.map((emp) => (
+                {filteredMembers.map((emp) => (
                   <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
                       <div className={cn("size-9 rounded-full grid place-items-center text-xs font-black shrink-0", avatarColor(emp.id))}>

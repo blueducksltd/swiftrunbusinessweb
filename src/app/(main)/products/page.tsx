@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Fragment } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import {
@@ -123,6 +124,7 @@ function toDisplay(p: Product, currency: string): DisplayProduct {
 }
 
 export default function ProductsPage() {
+  const searchParams = useSearchParams();
   const [rawProducts, setRawProducts] = useState<Product[]>([]);
   const [products, setProducts] = useState<DisplayProduct[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -192,9 +194,20 @@ export default function ProductsPage() {
     return () => unsub();
   }, [shopTypeId]);
 
-  const displayed = filterStatus
-    ? products.filter((p) => p.status === filterStatus)
-    : products;
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const displayed = products.filter((p) => {
+    const matchesStatus = filterStatus ? p.status === filterStatus : true;
+    if (!matchesStatus) return false;
+    if (!searchTerm) return true;
+    return [
+      p.name,
+      p.status,
+      p.raw.description,
+      p.raw.categoryName,
+      p.raw.unit,
+      p.raw.options?.map((o) => o.name).join(" "),
+    ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+  });
 
   const isLaundryShop =
     shopTypeId.trim().toLowerCase() === "laundry" ||
@@ -563,6 +576,7 @@ export default function ProductsPage() {
           <h1 className="text-xl font-black text-slate-900">{isLaundryShop ? "Laundry Services" : "All Products"}</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {displayed.length} {isLaundryShop ? "services listed" : "products listed"}
+            {searchTerm ? ` matching "${searchParams.get("q")}"` : ""}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -611,8 +625,8 @@ export default function ProductsPage() {
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {displayed.length === 0 ? (
           <div className="py-16 text-center text-slate-400">
-            <p className="text-sm font-semibold">No products yet.</p>
-            <p className="text-xs mt-1">Click &quot;+ Add&quot; to add your first product.</p>
+            <p className="text-sm font-semibold">{searchTerm ? "No matching products." : "No products yet."}</p>
+            <p className="text-xs mt-1">{searchTerm ? "Try another search or clear the search bar." : "Click \"+ Add\" to add your first product."}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

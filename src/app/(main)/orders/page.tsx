@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
@@ -280,6 +281,7 @@ function notifyOrderStatus(orderId: string, customerId: string, driverId: string
 }
 
 export default function OrdersPage() {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<DisplayOrder[]>([]);
   const [activeTab, setActiveTab] = useState<OrderStatus | "All">("All");
   const [detailOrder, setDetailOrder] = useState<DisplayOrder | null>(null);
@@ -324,7 +326,22 @@ export default function OrdersPage() {
     return () => { unsubShop(); unsub(); };
   }, [playSound]);
 
-  const filtered = activeTab === "All" ? orders : orders.filter((o) => o.status === activeTab);
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const filtered = orders.filter((o) => {
+    if (activeTab !== "All" && o.status !== activeTab) return false;
+    if (!searchTerm) return true;
+    return [
+      o.id,
+      o.orderCode,
+      o.product,
+      o.customer,
+      o.customerId,
+      o.receiverAddress,
+      o.status,
+      o.firestoreStatus,
+      o.items?.map((item) => `${item.name} ${item.unit ?? ""}`).join(" "),
+    ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+  });
 
   async function handleAction() {
     const id = pendingActionId.current;
@@ -423,7 +440,9 @@ export default function OrdersPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-xl font-black text-slate-900">All Orders</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{filtered.length} orders</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {filtered.length} orders{searchTerm ? ` matching "${searchParams.get("q")}"` : ""}
+          </p>
         </div>
       </div>
 
@@ -449,8 +468,10 @@ export default function OrdersPage() {
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-16 text-center text-slate-400">
-            <p className="text-sm font-semibold">No orders here yet.</p>
-            <p className="text-xs mt-1">Orders will appear in real time as customers place them.</p>
+            <p className="text-sm font-semibold">{searchTerm ? "No matching orders." : "No orders here yet."}</p>
+            <p className="text-xs mt-1">
+              {searchTerm ? "Try another search or clear the search bar." : "Orders will appear in real time as customers place them."}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

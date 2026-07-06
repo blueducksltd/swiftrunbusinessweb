@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from "firebase/firestore";
 import { cn } from "@/lib/cn";
 import { db } from "@/lib/firebase";
@@ -36,6 +37,7 @@ function Stars({ rating }: { rating: number }) {
 }
 
 export default function ReviewsPage() {
+  const searchParams = useSearchParams();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [ratingFilter, setRatingFilter] = useState(0);
@@ -76,8 +78,18 @@ export default function ReviewsPage() {
     return () => unsub();
   }, []);
 
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
   const filtered = reviews
-    .filter((r) => ratingFilter === 0 || r.rating === ratingFilter)
+    .filter((r) => {
+      if (ratingFilter !== 0 && r.rating !== ratingFilter) return false;
+      if (!searchTerm) return true;
+      return [
+        r.userName,
+        r.comment,
+        r.rating,
+        formatDate(r.updatedAt),
+      ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+    })
     .sort((a, b) => {
       if (sort === "oldest") return (a.updatedAt?.seconds ?? 0) - (b.updatedAt?.seconds ?? 0);
       if (sort === "highest") return b.rating - a.rating;
@@ -97,7 +109,7 @@ export default function ReviewsPage() {
           <p className="text-sm text-slate-500 mt-0.5">
             {loading ? "Loading…" : reviews.length === 0
               ? "No reviews yet"
-              : `${reviews.length} ${reviews.length === 1 ? "review" : "reviews"}${avg ? ` · Avg ${avg} ★` : ""}`}
+              : `${reviews.length} ${reviews.length === 1 ? "review" : "reviews"}${avg ? ` · Avg ${avg} ★` : ""}${searchTerm ? ` · ${filtered.length} matching "${searchParams.get("q")}"` : ""}`}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -134,9 +146,11 @@ export default function ReviewsPage() {
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
           <p className="text-sm font-semibold text-slate-400">
-            {ratingFilter > 0 ? `No ${ratingFilter}-star reviews` : "No reviews yet"}
+            {searchTerm ? "No matching reviews" : ratingFilter > 0 ? `No ${ratingFilter}-star reviews` : "No reviews yet"}
           </p>
-          <p className="text-xs text-slate-300 mt-1">Reviews from customers will appear here in real time</p>
+          <p className="text-xs text-slate-300 mt-1">
+            {searchTerm ? "Try another search or clear the search bar." : "Reviews from customers will appear here in real time"}
+          </p>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

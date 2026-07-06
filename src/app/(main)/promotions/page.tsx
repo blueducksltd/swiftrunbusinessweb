@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { getShopId, getRole } from "@/lib/session";
 import {
@@ -32,6 +33,8 @@ const STATUS_STYLES: Record<AdStatus, string> = {
   expired: "bg-slate-50 text-slate-400",
 };
 
+const AD_STATUSES: AdStatus[] = ["draft", "pending_review", "active", "paused", "rejected", "expired"];
+
 function fmtCost(amount: number, currency: string) {
   return `${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
 }
@@ -58,6 +61,7 @@ function expiryLabel(endsAt: { toDate?: () => Date } | null | undefined): string
 }
 
 export default function PromotionsPage() {
+  const searchParams = useSearchParams();
   const shopId = getShopId() ?? "";
   const isOwner = getRole() === "owner";
 
@@ -90,6 +94,7 @@ export default function PromotionsPage() {
   const [continuePayMethod, setContinuePayMethod] = useState<"balance" | "card">("balance");
   const [continueError, setContinueError] = useState("");
   const [continueSubmitting, setContinueSubmitting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<AdStatus | "all">("all");
 
   async function saveEdit() {
     if (!editAd || busyAd) return;
@@ -269,6 +274,21 @@ export default function PromotionsPage() {
     ["pending_review", "active", "paused"].includes(a.status)
   ).length;
   const slotsFull = cfg ? slotsUsed >= cfg.maxAdsPerBusiness : true;
+  const searchTerm = (searchParams.get("q") ?? "").trim().toLowerCase();
+  const filteredAds = ads.filter((ad) => {
+    if (statusFilter !== "all" && ad.status !== statusFilter) return false;
+    if (!searchTerm) return true;
+    return [
+      ad.title,
+      ad.subtitle,
+      ad.status,
+      ad.targetType,
+      ad.currency,
+      ad.amount,
+      ad.rejectReason,
+      ad.days,
+    ].some((value) => String(value ?? "").toLowerCase().includes(searchTerm));
+  });
 
   async function handleCreate() {
     if (!cfg || !pricing || submitting) return;
@@ -359,16 +379,29 @@ export default function PromotionsPage() {
           <h1 className="text-xl font-black text-slate-900">Promotions</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {cfg ? `${slotsUsed}/${cfg.maxAdsPerBusiness} ad slot${cfg.maxAdsPerBusiness === 1 ? "" : "s"} in use` : "Loading…"}
+            {searchTerm ? ` · ${filteredAds.length} matching "${searchParams.get("q")}"` : ""}
           </p>
         </div>
-        <button
-          onClick={() => setCreateOpen(true)}
-          disabled={slotsFull}
-          className="h-9 px-5 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          title={slotsFull ? "All your ad slots are in use" : ""}
-        >
-          + Place Ad
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as AdStatus | "all")}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 outline-none focus:border-[#056abf] cursor-pointer"
+          >
+            <option value="all">All statuses</option>
+            {AD_STATUSES.map((status) => (
+              <option key={status} value={status}>{status.replace("_", " ")}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setCreateOpen(true)}
+            disabled={slotsFull}
+            className="h-9 px-5 rounded-lg bg-[#056abf] text-white text-sm font-bold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={slotsFull ? "All your ad slots are in use" : ""}
+          >
+            + Place Ad
+          </button>
+        </div>
       </div>
 
       {pricing && (
@@ -385,7 +418,12 @@ export default function PromotionsPage() {
             No ads yet. Place your first ad to appear in the customer app&apos;s home banner.
           </div>
         )}
-        {ads.map((ad) => {
+        {ads.length > 0 && filteredAds.length === 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            No matching promotions. Try another search or adjust the status filter.
+          </div>
+        )}
+        {filteredAds.map((ad) => {
           const adminPaused = ad.status === "paused" && ad.pausedBy === "admin";
           return (
             <div key={ad.id} className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-wrap items-center gap-4">
