@@ -222,7 +222,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
 
   return (
     <>
-      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 lg:px-6 py-3 flex items-center justify-between gap-3 lg:gap-4">
+      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 lg:px-6 py-3 flex flex-wrap lg:flex-nowrap items-center justify-between gap-3 lg:gap-4">
         {/* Hamburger — mobile only */}
         <button
           onClick={onMenuClick}
@@ -237,8 +237,8 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
 
         {/* Search */}
-        <div ref={searchWrapRef} className="relative flex-1 max-w-xs">
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 h-9 w-full max-w-xs">
+        <div ref={searchWrapRef} className="relative order-2 w-full min-w-0 lg:order-none lg:flex-1 lg:max-w-xs">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 h-9 w-full">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
@@ -322,13 +322,13 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="order-1 ml-auto flex min-w-0 items-center gap-2 lg:order-none lg:gap-3 shrink-0">
           <Link
             href="/business"
-            className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 h-9 hover:bg-slate-50 transition-colors"
+            className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-3 h-9 hover:bg-slate-50 transition-colors"
           >
             <span className="size-2 rounded-full bg-green-500 shrink-0" />
-            <span className="max-w-40 truncate text-xs font-black text-slate-800">{shopName.toUpperCase()}</span>
+            <span className="max-w-[9.5rem] sm:max-w-40 truncate text-xs font-black text-slate-800">{shopName.toUpperCase()}</span>
           </Link>
 
           {/* Logged-in user chip */}
