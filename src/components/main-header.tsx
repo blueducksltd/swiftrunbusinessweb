@@ -77,7 +77,11 @@ const PAGE_SEARCH_LABELS: Record<string, string> = {
   "/reviews": "Search reviews",
   "/members": "Search employees",
   "/promotions": "Search promotions",
+  "/notifications": "Search notifications",
+  "/support": "Search support",
 };
+
+const SEARCH_DISABLED_PATHS = new Set(["/dashboard", "/payout"]);
 
 function queryHref(path: string, term: string) {
   const q = term.trim();
@@ -140,7 +144,7 @@ export function MainHeader({ onMenuClick }: { onMenuClick?: () => void }) {
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const currentSearchLabel = PAGE_SEARCH_LABELS[pathname] ?? "";
   const canSearchCurrentPage = Boolean(currentSearchLabel);
-  const searchDisabled = pathname === "/dashboard";
+  const searchDisabled = SEARCH_DISABLED_PATHS.has(pathname);
 
   const { notifications, unreadCount, markAllRead, markRead } = useNotifications(shopId.current, shopEmail, shopCurrency);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { getRole, getShopId, getShopName } from "@/lib/session";
 import { getBusinessFaqs } from "@/lib/firestore";
 
@@ -31,6 +32,7 @@ const FALLBACK_FAQS: { q: string; a: string }[] = [
 ];
 
 export default function SupportPage() {
+  const searchParams = useSearchParams();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [faqs, setFaqs] = useState(FALLBACK_FAQS);
 
@@ -52,6 +54,14 @@ export default function SupportPage() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const rawSearchTerm = searchParams.get("q") ?? "";
+  const searchTerm = rawSearchTerm.trim().toLowerCase();
+  const filteredFaqs = searchTerm
+    ? faqs.filter((item) => {
+        const haystack = [item.q, item.a];
+        return haystack.some((value) => value.toLowerCase().includes(searchTerm));
+      })
+    : faqs;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,7 +106,9 @@ export default function SupportPage() {
       <div className="mb-6">
         <h1 className="text-xl font-black text-slate-900">Support</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Find quick answers or send the SwiftRun team a message
+          {searchTerm
+            ? `${filteredFaqs.length} help article${filteredFaqs.length === 1 ? "" : "s"} matching "${rawSearchTerm.trim()}"`
+            : "Find quick answers or send the SwiftRun team a message"}
         </p>
       </div>
 
@@ -107,7 +119,12 @@ export default function SupportPage() {
             Frequently asked
           </h2>
           <div className="space-y-2">
-            {faqs.map((item, i) => {
+            {filteredFaqs.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center">
+                <p className="text-sm font-semibold text-slate-400">No matching help articles</p>
+                <p className="text-xs text-slate-300 mt-1">Try another keyword or send us a message.</p>
+              </div>
+            ) : filteredFaqs.map((item, i) => {
               const open = openFaq === i;
               return (
                 <div key={i} className="border border-slate-100 rounded-lg overflow-hidden">

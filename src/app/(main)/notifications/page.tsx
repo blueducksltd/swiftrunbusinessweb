@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   collection,
@@ -90,6 +90,7 @@ const PAGE_SIZE = 25;
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const shopId = getShopId() ?? "";
 
   const [notifs, setNotifs] = useState<Notif[]>([]);
@@ -178,6 +179,26 @@ export default function NotificationsPage() {
   }
 
   const unreadCount = notifs.filter((n) => !n.read).length;
+  const rawSearchTerm = searchParams.get("q") ?? "";
+  const searchTerm = rawSearchTerm.trim().toLowerCase();
+  const filteredNotifs = searchTerm
+    ? notifs.filter((n) => {
+        const haystack = [
+          n.title,
+          n.subtitle,
+          n.type,
+          typeLabel(n.type),
+          timeAgo(n.ts),
+          n.read ? "read" : "unread",
+        ];
+        return haystack.some((value) => value.toLowerCase().includes(searchTerm));
+      })
+    : notifs;
+  const countText = loading
+    ? "Loading…"
+    : notifs.length === 0
+      ? "No notifications"
+      : `${notifs.length}${hasMore ? "+" : ""} notifications · ${unreadCount} unread${searchTerm ? ` · ${filteredNotifs.length} matching "${rawSearchTerm.trim()}"` : ""}`;
 
   return (
     <>
@@ -186,7 +207,7 @@ export default function NotificationsPage() {
         <div>
           <h1 className="text-xl font-black text-slate-900">Notifications</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {loading ? "Loading…" : notifs.length === 0 ? "No notifications" : `${notifs.length}${hasMore ? "+" : ""} notifications · ${unreadCount} unread`}
+            {countText}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -224,9 +245,18 @@ export default function NotificationsPage() {
           <p className="text-sm font-semibold text-slate-400">No notifications yet</p>
           <p className="text-xs text-slate-300 mt-1">Orders, reviews, and stock alerts will appear here</p>
         </div>
+      ) : filteredNotifs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" className="mb-3" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <p className="text-sm font-semibold text-slate-400">No matching notifications</p>
+          <p className="text-xs text-slate-300 mt-1">Try searching an order, stock alert, payout, or review keyword.</p>
+        </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-          {notifs.map((n) => {
+          {filteredNotifs.map((n) => {
             const { bg } = typeColors(n.type);
             return (
               <div
