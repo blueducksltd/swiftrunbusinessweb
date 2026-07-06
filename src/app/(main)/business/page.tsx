@@ -17,6 +17,7 @@ export default function BusinessPage() {
   const [form, setForm] = useState({
     name: "",
     description: "",
+    estimatedDeliveryTime: "",
     address: "",
     latitude: 0,
     longitude: 0,
@@ -38,6 +39,7 @@ export default function BusinessPage() {
       setForm({
         name: shop.name ?? "",
         description: shop.description ?? "",
+        estimatedDeliveryTime: shop.estimatedDeliveryTime ?? "",
         address: shop.address ?? "",
         latitude: shop.latitude ?? 0,
         longitude: shop.longitude ?? 0,
@@ -64,6 +66,7 @@ export default function BusinessPage() {
         name: form.name,
         description: form.description,
         phone: form.phone,
+        estimatedDeliveryTime: form.estimatedDeliveryTime.trim(),
         openingHours: hours,
       });
       setSaved(true);
@@ -215,6 +218,20 @@ export default function BusinessPage() {
                 onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
                 className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1.5">Store Estimate</label>
+              <input
+                type="text"
+                value={form.estimatedDeliveryTime}
+                onChange={(e) => setForm((p) => ({ ...p, estimatedDeliveryTime: e.target.value }))}
+                placeholder="Example: 30-45 min, 2 hrs, 24-48 hrs"
+                maxLength={40}
+                className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#056abf] focus:ring-2 focus:ring-[#056abf]/10 transition-all"
+              />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Shown to customers on your store page as the estimated time before checkout.
+              </p>
             </div>
           </div>
 
