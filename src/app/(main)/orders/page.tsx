@@ -4,13 +4,14 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
-import { getShopId } from "@/lib/session";
+import { getShopId, getShopName } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
 
 type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
 
 type DisplayOrder = {
   firestoreId: string;
+  shopId: string;
   orderType: "errand" | "laundry";
   firestoreStatus: ErrandStatus;
   id: string;
@@ -97,6 +98,23 @@ function orderItemsSearchText(items: ErrandOrder["items"] = []) {
       return `${item.name} ${item.unit ?? ""} ${addOns ?? ""}`;
     })
     .join(" ");
+}
+
+function orderItemKey(item: ErrandOrder["items"][number], index: number): string {
+  return item.lineId || `${item.productId || "item"}_${index}`;
+}
+
+function itemFulfilledQty(item: ErrandOrder["items"][number]): number {
+  const qty = Number(item.qty ?? 1);
+  const unavailableQty = Number(item.unavailableQty ?? 0);
+  return Math.max(0, qty - unavailableQty);
+}
+
+function itemFulfilledTotal(item: ErrandOrder["items"][number]): number {
+  const qty = Number(item.qty ?? 1);
+  const fulfilledQty = itemFulfilledQty(item);
+  if (qty <= 0 || fulfilledQty >= qty) return Number(item.total ?? 0);
+  return (Number(item.total ?? 0) / qty) * fulfilledQty;
 }
 
 function mapStatus(s: ErrandStatus): OrderStatus {
@@ -209,6 +227,7 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
   const status = mapStatus(o.status);
   return {
     firestoreId: o.id,
+    shopId: o.shopId ?? "",
     orderType: o.orderType === "laundry" ? "laundry" : "errand",
     firestoreStatus: o.status,
     id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
@@ -299,6 +318,11 @@ export default function OrdersPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [unavailableOpen, setUnavailableOpen] = useState(false);
+  const [unavailableItem, setUnavailableItem] = useState<{ orderId: string; shopId: string; itemKey: string; name: string; qty: number } | null>(null);
+  const [unavailableQty, setUnavailableQty] = useState(1);
+  const [unavailableReason, setUnavailableReason] = useState("");
+  const [unavailableError, setUnavailableError] = useState("");
   const [intakeNote, setIntakeNote] = useState("");
   const [readyTimeInput, setReadyTimeInput] = useState("");
   const [extendOpen, setExtendOpen] = useState(false);
@@ -363,6 +387,7 @@ export default function OrdersPage() {
     if (!next) return;
 
     setUpdating(true);
+    setUnavailableError("");
     try {
       const isIntake = order.orderType === "laundry" && next === "laundry_processing";
       await updateOrderStatus(id, next, {
@@ -443,6 +468,42 @@ export default function OrdersPage() {
       setRejectOpen(false);
       setRejectReason("");
       pendingRejectId.current = null;
+    }
+  }
+
+  async function handleMarkUnavailable() {
+    if (!unavailableItem) return;
+    const reason = unavailableReason.trim();
+    if (!reason) return;
+
+    setUpdating(true);
+    setUnavailableError("");
+    try {
+      const res = await fetch("/api/errand-item-refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: unavailableItem.orderId,
+          shopId: unavailableItem.shopId,
+          itemKey: unavailableItem.itemKey,
+          unavailableQty,
+          reason,
+          actorName: getShopName(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || "Could not create the refund request. Nothing was changed.");
+      }
+      setUnavailableOpen(false);
+      setUnavailableItem(null);
+      setUnavailableQty(1);
+      setUnavailableReason("");
+      setDetailOrder(null);
+    } catch (err) {
+      setUnavailableError(err instanceof Error ? err.message : "Could not record unavailable item.");
+    } finally {
+      setUpdating(false);
     }
   }
 
@@ -723,28 +784,80 @@ export default function OrdersPage() {
 
               {detailOrder.items.length > 0 && (
                 <div className="mb-4 p-3 bg-slate-50 rounded-lg space-y-2.5">
-                  {detailOrder.items.map((item, i) => (
-                    <div key={i} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-700">{item.name}</span>
-                        <span className="text-slate-500">×{item.qty} — {fmt(item.total, shopCurrency)}</span>
-                      </div>
-                      {item.selectedOptions && item.selectedOptions.length > 0 && (
-                        <div className="pl-3 space-y-0.5 border-l-2 border-slate-200">
-                          {item.selectedOptions.map((opt, j) => {
-                            const optQty = Number(opt?.qty ?? 1);
-                            const optPrice = Number(opt?.price ?? 0);
-                            return (
-                              <div key={j} className="flex items-center justify-between text-[11px] text-slate-500">
-                                <span>+ {opt?.name ?? "Add-on"}{optQty > 1 ? ` ×${optQty}` : ""}</span>
-                                {optPrice > 0 && <span>{fmt(optPrice, shopCurrency)}</span>}
-                              </div>
-                            );
-                          })}
+                  {detailOrder.items.map((item, i) => {
+                    const key = orderItemKey(item, i);
+                    const unavailableQtyForItem = Number(item.unavailableQty ?? 0);
+                    const fulfilledQty = itemFulfilledQty(item);
+                    const fulfilledTotal = itemFulfilledTotal(item);
+                    const hasRefundInFlight = Boolean(item.refundStatus && item.refundStatus !== "failed");
+                    const canMarkUnavailable =
+                      detailOrder.status !== "Cancelled" &&
+                      detailOrder.firestoreStatus !== "picked_up" &&
+                      detailOrder.firestoreStatus !== "delivered" &&
+                      detailOrder.firestoreStatus !== "laundry_picked_up_from_store" &&
+                      !hasRefundInFlight &&
+                      fulfilledQty > 0;
+                    return (
+                      <div key={key} className="space-y-1 rounded-lg bg-white p-2">
+                        <div className="flex items-start justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <span className="font-semibold text-slate-700">{item.name}</span>
+                            {unavailableQtyForItem > 0 && (
+                              <p className="mt-0.5 text-[11px] font-bold text-amber-700">
+                                {unavailableQtyForItem >= Number(item.qty ?? 1)
+                                  ? "Unavailable, refund pending"
+                                  : `${unavailableQtyForItem} unavailable, refund pending`}
+                              </p>
+                            )}
+                            {item.unavailableReason && (
+                              <p className="mt-0.5 text-[11px] text-slate-500">Reason: {item.unavailableReason}</p>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <span className="block text-slate-500">
+                              ×{fulfilledQty}{unavailableQtyForItem > 0 ? ` of ${item.qty}` : ""} — {fmt(fulfilledTotal, shopCurrency)}
+                            </span>
+                            {canMarkUnavailable && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setUnavailableItem({
+                                    orderId: detailOrder.firestoreId,
+                                    shopId: detailOrder.shopId,
+                                    itemKey: key,
+                                    name: item.name,
+                                    qty: fulfilledQty,
+                                  });
+                                  setUnavailableQty(1);
+                                  setUnavailableReason("");
+                                  setUnavailableError("");
+                                  setUnavailableOpen(true);
+                                }}
+                                className="mt-1 text-[11px] font-black text-amber-700 hover:text-amber-800"
+                              >
+                                Mark unavailable
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {item.selectedOptions && item.selectedOptions.length > 0 && (
+                          <div className="pl-3 space-y-0.5 border-l-2 border-slate-200">
+                            {item.selectedOptions.map((opt, j) => {
+                              const optQty = Number(opt?.qty ?? 1);
+                              const optPrice = Number(opt?.price ?? 0);
+                              return (
+                                <div key={j} className="flex items-center justify-between text-[11px] text-slate-500">
+                                  <span>+ {opt?.name ?? "Add-on"}{optQty > 1 ? ` ×${optQty}` : ""}</span>
+                                  {optPrice > 0 && <span>{fmt(optPrice, shopCurrency)}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -916,6 +1029,72 @@ export default function OrdersPage() {
                 className="flex-1 h-10 rounded-lg bg-red-600 text-white font-bold text-sm hover:bg-red-700 transition-colors disabled:opacity-60"
               >
                 {updating ? "Cancelling…" : "Reject Order"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Item Unavailable Modal */}
+      {unavailableOpen && unavailableItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+            <div className="size-16 rounded-full bg-amber-50 grid place-items-center mx-auto mb-4">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                <line x1="12" y1="9" x2="12" y2="13" />
+                <line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </div>
+            <h3 className="text-center text-lg font-black text-slate-900 mb-2">Item unavailable</h3>
+            <p className="text-center text-sm text-slate-500 mb-5">
+              Record the unavailable quantity for <span className="font-bold text-slate-700">{unavailableItem.name}</span>. SwiftRun will settle the customer refund from the admin policy.
+            </p>
+            <label className="mb-1.5 block text-xs font-bold text-slate-600">Unavailable quantity</label>
+            <input
+              type="number"
+              min={1}
+              max={unavailableItem.qty}
+              value={unavailableQty}
+              onChange={(e) => {
+                const next = Number(e.target.value || 1);
+                setUnavailableQty(Math.min(Math.max(1, next), unavailableItem.qty));
+              }}
+              className="mb-4 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+            />
+            <textarea
+              value={unavailableReason}
+              onChange={(e) => setUnavailableReason(e.target.value)}
+              placeholder="Reason, for example: Out of stock on shelf"
+              className="mb-4 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
+            />
+            <p className="mb-5 text-[11px] font-semibold text-slate-400">
+              This does not pay a refund instantly. It creates an audit trail so the customer refund and store ledger can be settled safely.
+            </p>
+            {unavailableError && (
+              <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+                {unavailableError}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setUnavailableOpen(false);
+                  setUnavailableItem(null);
+                  setUnavailableQty(1);
+                  setUnavailableReason("");
+                  setUnavailableError("");
+                }}
+                className="flex-1 h-10 rounded-lg border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Go Back
+              </button>
+              <button
+                onClick={handleMarkUnavailable}
+                disabled={updating || unavailableReason.trim().length === 0}
+                className="flex-1 h-10 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition-colors disabled:opacity-60"
+              >
+                {updating ? "Saving…" : "Record"}
               </button>
             </div>
           </div>

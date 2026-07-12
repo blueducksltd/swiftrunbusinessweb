@@ -99,6 +99,7 @@ export type ErrandStatus =
   | "cancelled";
 
 export interface OrderItem {
+  lineId?: string;
   productId: string;
   name: string;
   price: number;
@@ -108,6 +109,10 @@ export interface OrderItem {
   unit: string;
   // Per-item add-ons / options the customer selected (saved by the app).
   selectedOptions?: { name?: string; qty?: number; price?: number }[];
+  fulfillmentStatus?: "fulfilled" | "partial_unavailable" | "unavailable";
+  unavailableQty?: number;
+  unavailableReason?: string;
+  refundStatus?: "pending" | "manual_review" | "processing" | "processed" | "failed";
 }
 
 export interface ErrandOrder {
