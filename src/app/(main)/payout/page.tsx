@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn";
 import { fmtCurrency } from "@/lib/currency";
 import { subscribeToShop } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
-import { auth } from "@/lib/firebase";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -77,9 +77,9 @@ export default function PayoutPage() {
     });
 
     Promise.all([
-      fetch(`/api/admin/payout/account?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
-      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
-      fetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      authenticatedFetch(`/api/admin/payout/account?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      authenticatedFetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      authenticatedFetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
     ])
       .then(([accountData, financeData, historyData]) => {
         setAccount(accountData.account ?? null);
@@ -104,8 +104,8 @@ export default function PayoutPage() {
     const shopId = getShopId();
     if (!shopId) return;
     const [financeData, historyData] = await Promise.all([
-      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
-      fetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      authenticatedFetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
+      authenticatedFetch(`/api/admin/payout/history?shop_id=${encodeURIComponent(shopId)}`).then((r) => r.json()),
     ]);
     if (financeData?.found) {
       setFinance({
@@ -123,7 +123,9 @@ export default function PayoutPage() {
 
   async function handleRemove() {
     if (!account) return;
-    await fetch(`/api/admin/payout/account?id=${account.id}`, { method: "DELETE" });
+    const shopId = getShopId();
+    if (!shopId) return;
+    await authenticatedFetch(`/api/admin/payout/account?id=${account.id}&shop_id=${encodeURIComponent(shopId)}`, { method: "DELETE" });
     setAccount(null);
   }
 
@@ -219,12 +221,9 @@ function WithdrawCard({
     setSubmitting(true);
     setError("");
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error("Your session expired. Please sign in again.");
-      const token = await user.getIdToken();
-      const r = await fetch("/api/business/request-withdrawal", {
+      const r = await authenticatedFetch("/api/business/request-withdrawal", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shop_id: shopId, currency, amount: withdrawable.toFixed(2) }),
       });
       const d = await r.json();
@@ -457,11 +456,11 @@ function PaystackForm({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/admin/payout/banks?currency=NGN")
+    authenticatedFetch(`/api/admin/payout/banks?shop_id=${encodeURIComponent(shopId)}`)
       .then((r) => r.json())
       .then((d) => setBanks(d.banks ?? []))
       .catch(() => {});
-  }, []);
+  }, [shopId]);
 
   const verify = useCallback(async () => {
     if (!bankCode || accountNumber.length < 10) return;
@@ -469,10 +468,10 @@ function PaystackForm({
     setVerifyError("");
     setAccountName("");
     try {
-      const r = await fetch("/api/admin/payout/verify", {
+      const r = await authenticatedFetch("/api/admin/payout/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account_number: accountNumber, bank_code: bankCode }),
+        body: JSON.stringify({ shop_id: shopId, account_number: accountNumber, bank_code: bankCode }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Verification failed");
@@ -482,7 +481,7 @@ function PaystackForm({
     } finally {
       setVerifying(false);
     }
-  }, [bankCode, accountNumber]);
+  }, [bankCode, accountNumber, shopId]);
 
   // Auto-verify when account number is complete
   useEffect(() => {
@@ -494,7 +493,7 @@ function PaystackForm({
     setSaving(true);
     setError("");
     try {
-      const r = await fetch("/api/admin/payout/account", {
+      const r = await authenticatedFetch("/api/admin/payout/account", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -607,7 +606,7 @@ function StripeConnectCard({
   const loadStatus = useCallback(async () => {
     if (!shopId) { setLoading(false); return; }
     try {
-      const r = await fetch(`/api/business/stripe/status?shop_id=${encodeURIComponent(shopId)}`);
+      const r = await authenticatedFetch(`/api/business/stripe/status?shop_id=${encodeURIComponent(shopId)}`);
       const d = await r.json();
       setStatus(d);
       if (d?.verified) onChanged();
@@ -624,12 +623,10 @@ function StripeConnectCard({
     setConnecting(true);
     setError("");
     try {
-      const email = auth.currentUser?.email ?? "";
-      if (!email) throw new Error("Your account has no email on file. Please sign in again.");
-      const r = await fetch("/api/business/stripe/onboard", {
+      const r = await authenticatedFetch("/api/business/stripe/onboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop_id: shopId, email, country }),
+        body: JSON.stringify({ shop_id: shopId, country }),
       });
       const d = await r.json();
       if (!r.ok || !d.onboarding_url) throw new Error(d.error || "Could not start Stripe onboarding.");

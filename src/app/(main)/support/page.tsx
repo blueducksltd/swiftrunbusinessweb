@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { getRole, getShopId, getShopName } from "@/lib/session";
 import { getBusinessFaqs } from "@/lib/firestore";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
 const CATEGORIES = ["Orders", "Payouts", "Products", "Account", "Other"];
 
@@ -72,7 +73,7 @@ export default function SupportPage() {
     }
     setSending(true);
     try {
-      const res = await fetch("/api/support", {
+      const res = await authenticatedFetch("/api/support", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

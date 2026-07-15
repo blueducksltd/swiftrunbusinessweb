@@ -1,20 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { memberEmail, memberName, shopName, role, isResend } = await req.json() as {
+    const { memberEmail, memberId, shopId, isResend } = await req.json() as {
       memberEmail: string;
-      memberName: string;
-      shopName: string;
-      role: string;
+      memberId?: string;
+      shopId: string;
       isResend?: boolean;
     };
+    const access = await verifyBusinessShopAccess(req, shopId, "owner");
+    if (!access.ok) return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
+    const normalizedEmail = memberEmail.toLowerCase().trim();
+    const members = access.access.shopRef.collection("members");
+    const member = memberId
+      ? await members.doc(memberId).get()
+      : (await members.where("email", "==", normalizedEmail).limit(1).get()).docs[0];
+    if (!member?.exists || String(member.data()?.email ?? "").toLowerCase().trim() !== normalizedEmail) {
+      return NextResponse.json({ ok: false, reason: "Staff member not found for this shop" }, { status: 404 });
+    }
+    const memberData = member.data() ?? {};
+    const memberName = `${memberData.firstName ?? ""} ${memberData.lastName ?? ""}`.trim() || normalizedEmail;
+    const shopName = String(access.access.shop.name ?? "Your shop");
+    const role = String(memberData.role ?? "Staff");
 
     const smtpUser = process.env.SMTP_USER;
     const smtpPass = process.env.SMTP_PASS;
 
-    if (!smtpUser || !smtpPass || !memberEmail) {
+    if (!smtpUser || !smtpPass || !normalizedEmail) {
       return NextResponse.json({ ok: false, reason: "SMTP not configured or missing email" });
     }
 
@@ -33,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     await transporter.sendMail({
       from: `SwiftRun Business <${smtpUser}>`,
-      to: memberEmail,
+      to: normalizedEmail,
       subject,
       html: `
         <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">

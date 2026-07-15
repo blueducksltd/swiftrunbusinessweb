@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,19 +19,34 @@ export async function POST(req: NextRequest) {
     if (!email || !password || !shopId) {
       return NextResponse.json({ ok: false, reason: "Missing required fields" }, { status: 400 });
     }
+    const access = await verifyBusinessShopAccess(req, shopId, "owner");
+    if (!access.ok) return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
 
     const auth = adminAuth();
     const db = adminDb();
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Create or get Firebase Auth user
     let uid: string;
+    let existing = null;
     try {
-      const existing = await auth.getUserByEmail(email);
+      existing = await auth.getUserByEmail(normalizedEmail);
+    } catch (err) {
+      if ((err as { code?: string }).code !== "auth/user-not-found") throw err;
+    }
+    if (existing) {
       uid = existing.uid;
+      const existingMember = await db.collection("Shops").doc(access.access.shopId).collection("members").doc(uid).get();
+      if (!existingMember.exists) {
+        return NextResponse.json(
+          { ok: false, reason: "An account already exists for this email. Invite the existing account instead." },
+          { status: 409 },
+        );
+      }
       await auth.updateUser(uid, { password, displayName: `${firstName} ${lastName}`.trim() });
-    } catch {
+    } else {
       const created = await auth.createUser({
-        email,
+        email: normalizedEmail,
         password,
         displayName: `${firstName} ${lastName}`.trim(),
         emailVerified: true,
@@ -39,13 +55,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Write member record to Firestore
-    await db.collection("Shops").doc(shopId).collection("members").doc(uid).set({
+    await db.collection("Shops").doc(access.access.shopId).collection("members").doc(uid).set({
       firstName,
       lastName,
-      email,
-      role: role || "Staff",
+      email: normalizedEmail,
+      role: role === "Manager" ? "Manager" : "Staff",
       isActive: true,
-      shopName,
+      shopName: String(access.access.shop.name ?? shopName ?? ""),
+      authUid: uid,
       invitedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
 

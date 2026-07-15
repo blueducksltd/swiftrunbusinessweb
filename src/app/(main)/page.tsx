@@ -5,8 +5,9 @@ import { cn } from "@/lib/cn";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, updateOrderStatus, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
-type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
+type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Completed" | "Cancelled";
 
 type DisplayOrder = {
   firestoreId: string;
@@ -37,6 +38,7 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
   Preparing:    "bg-amber-50 text-amber-700",
   Ready:        "bg-green-50 text-green-700",
   "Picked Up":  "bg-blue-50 text-[#056abf]",
+  Completed:     "bg-emerald-50 text-emerald-700",
   Cancelled:    "bg-red-50 text-red-700",
 };
 
@@ -46,6 +48,7 @@ const TABS: { label: string; value: OrderStatus | "All" }[] = [
   { label: "Preparing",   value: "Preparing" },
   { label: "Ready",       value: "Ready" },
   { label: "Picked Up",   value: "Picked Up" },
+  { label: "Completed",   value: "Completed" },
   { label: "Cancelled",   value: "Cancelled" },
 ];
 
@@ -55,27 +58,35 @@ const TAB_ACTIVE: Record<string, string> = {
   Preparing:   "bg-amber-500 text-white",
   Ready:       "bg-green-600 text-white",
   "Picked Up": "bg-[#056abf] text-white",
+  Completed:    "bg-emerald-600 text-white",
   Cancelled:   "bg-red-600 text-white",
 };
 
-const STEPS: OrderStatus[] = ["New", "Preparing", "Ready", "Picked Up"];
+const STEPS: OrderStatus[] = ["New", "Preparing", "Ready", "Picked Up", "Completed"];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   New:         "bg-purple-100",
   Preparing:   "bg-amber-100",
   Ready:       "bg-green-100",
   "Picked Up": "bg-blue-100",
+  Completed:    "bg-emerald-100",
   Cancelled:   "bg-red-100",
 };
 
 function mapStatus(s: ErrandStatus): OrderStatus {
   if (s === "cancelled") return "Cancelled";
-  if (s === "picked_up" || s === "delivered") return "Picked Up";
-  if (s === "ready") return "Ready";
-  if (s === "preparing") return "Preparing";
+  if (s === "delivered" || s === "completed" || s === "laundry_delivered") return "Completed";
+  if (s === "picked_up" || s === "laundry_picked_up_from_store") return "Picked Up";
+  if (s === "ready" || s === "laundry_ready_for_return") return "Ready";
+  if (s === "preparing" || s === "laundry_processing" || s === "laundry_at_store") return "Preparing";
   // pending, accepted, driver_at_shop → store hasn't acted yet
   return "New";
 }
+
+const FINAL_ORDER_STATUSES = new Set<ErrandStatus>([
+  "cancelled", "payment_failed", "payment_pending", "picked_up", "delivered",
+  "completed", "laundry_picked_up_from_store", "laundry_delivered",
+]);
 
 // What Firestore status the store should set next when they click the action button.
 function nextFirestoreStatus(current: ErrandStatus): ErrandStatus | null {
@@ -131,11 +142,11 @@ function toDisplay(o: ErrandOrder): DisplayOrder {
   };
 }
 
-function notifyOrderStatus(customerId: string, driverId: string | null, status: string, shopName: string) {
-  fetch("/api/errand-notify", {
+function notifyOrderStatus(orderId: string, shopId: string, status: string) {
+  authenticatedFetch("/api/errand-notify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ customerId, driverId, status, shopName }),
+    body: JSON.stringify({ orderId, shopId, status }),
   }).catch(() => {});
 }
 
@@ -198,7 +209,7 @@ export default function OrdersPage() {
             : o
         )
       );
-      notifyOrderStatus(order.customerId, order.driverId, next, order.shopName);
+      notifyOrderStatus(order.firestoreId, getShopId() ?? "", next);
     } finally {
       setUpdating(false);
       setConfirmOpen(false);
@@ -222,7 +233,7 @@ export default function OrdersPage() {
             : o
         )
       );
-      notifyOrderStatus(order.customerId, order.driverId, "cancelled", order.shopName);
+      notifyOrderStatus(order.firestoreId, getShopId() ?? "", "cancelled");
     } finally {
       setUpdating(false);
       setRejectOpen(false);
@@ -421,7 +432,7 @@ export default function OrdersPage() {
               >
                 Close
               </button>
-              {detailOrder.firestoreStatus !== "cancelled" && detailOrder.firestoreStatus !== "delivered" && detailOrder.firestoreStatus !== "picked_up" && (
+              {!FINAL_ORDER_STATUSES.has(detailOrder.firestoreStatus) && (
                 <button
                   onClick={() => {
                     pendingRejectId.current = detailOrder.firestoreId;

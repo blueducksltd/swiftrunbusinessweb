@@ -548,6 +548,7 @@ export default function ProductsPage() {
         name: editForm.title,
         description: editForm.description,
         price: parseFloat(editForm.price) || 0,
+        currency: shopCurrency,
         stock: newStock,
         isAvailable: newStock > 0,
         unit: editForm.unit || "unit",
@@ -779,6 +780,8 @@ export default function ProductsPage() {
                         <input
                           required
                           type="number"
+                          min="0"
+                          step="any"
                           value={form.price}
                           onChange={(e) => setForm((p) => ({ ...p, price: e.target.value }))}
                           placeholder="0"
@@ -882,6 +885,8 @@ export default function ProductsPage() {
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">{shopCurrency}</span>
                           <input
                             type="number"
+                            min="0"
+                            step="any"
                             value={opt.price}
                             onChange={(e) => setOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, price: e.target.value } : o))}
                             placeholder="0"
@@ -1010,6 +1015,8 @@ export default function ProductsPage() {
                         <input
                           required
                           type="number"
+                          min="0"
+                          step="any"
                           value={editForm.price}
                           onChange={(e) => setEditForm((p) => ({ ...p, price: e.target.value }))}
                           placeholder="0"
@@ -1110,6 +1117,8 @@ export default function ProductsPage() {
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">{shopCurrency}</span>
                           <input
                             type="number"
+                            min="0"
+                            step="any"
                             value={opt.price}
                             onChange={(e) => setEditOptions((prev) => prev.map((o, idx) => idx === i ? { ...o, price: e.target.value } : o))}
                             placeholder="0"

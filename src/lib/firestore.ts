@@ -16,6 +16,7 @@ import {
   type QuerySnapshot,
   type DocumentData,
 } from "firebase/firestore";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 import { db, storage } from "./firebase";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 
@@ -50,6 +51,7 @@ export type ProductStatus = "Active" | "Low Stock" | "Out of Stock";
 export interface ProductOption {
   name: string;
   price: number;
+  priceMinor?: number;
   scope?: "order" | "bundle" | "item";
 }
 
@@ -62,6 +64,9 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  priceMinor?: number;
+  moneySchemaVersion?: number;
+  minorUnitExponent?: number;
   currency?: string;
   unit: string;
   imageUrl: string;
@@ -85,6 +90,8 @@ export interface Product {
 
 export type ErrandStatus =
   | "pending"
+  | "payment_pending"
+  | "payment_failed"
   | "accepted"
   | "driver_at_shop"
   | "preparing"
@@ -96,6 +103,8 @@ export type ErrandStatus =
   | "laundry_ready_for_return"
   | "laundry_picked_up_from_store"
   | "delivered"
+  | "completed"
+  | "laundry_delivered"
   | "cancelled";
 
 export interface OrderItem {
@@ -255,6 +264,36 @@ function productStatus(stock: number, isAvailable: boolean): ProductStatus {
   return "Active";
 }
 
+function currencyExponent(currency?: string): number {
+  const code = (currency ?? "").trim().toUpperCase();
+  if (["BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF"].includes(code)) return 0;
+  if (["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"].includes(code)) return 3;
+  if (["CLF", "UYW"].includes(code)) return 4;
+  return 2;
+}
+
+function withProductMoney<T extends Partial<Product>>(data: T): T & Record<string, unknown> {
+  const currency = data.currency ?? "";
+  const exponent = currencyExponent(currency);
+  const factor = 10 ** exponent;
+  const result: T & Record<string, unknown> = {
+    ...data,
+    moneySchemaVersion: 2,
+    minorUnitExponent: exponent,
+  };
+  if (typeof data.price === "number") {
+    result.priceMinor = Math.round((data.price + Number.EPSILON) * factor);
+  }
+  if (Array.isArray(data.options)) {
+    result.options = data.options.map((option) => ({
+      ...option,
+      priceMinor: Math.round(((option.price ?? 0) + Number.EPSILON) * factor),
+      minorUnitExponent: exponent,
+    }));
+  }
+  return result;
+}
+
 function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
   return snap.docs.map((d) => {
     const data = d.data();
@@ -267,6 +306,9 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
       name: data.name ?? "",
       description: data.description ?? "",
       price: data.price ?? 0,
+      priceMinor: data.priceMinor,
+      moneySchemaVersion: data.moneySchemaVersion,
+      minorUnitExponent: data.minorUnitExponent,
       unit: data.unit ?? "",
       imageUrl: data.imageUrl ?? "",
       thumbnailUrl: data.thumbnailUrl ?? "",
@@ -291,8 +333,27 @@ function snapshotToProducts(snap: QuerySnapshot<DocumentData>): Product[] {
 
 export function isConfirmedErrandOrder(data: Record<string, unknown>): boolean {
   const status = String(data.status ?? "").toLowerCase();
-  if (!status || status === "payment_pending" || status === "payment_failed") return false;
+  const checkoutStatus = String(data.checkoutStatus ?? "").toLowerCase();
+  if (
+    !status ||
+    status === "payment_pending" ||
+    status === "payment_failed" ||
+    status === "payment_review" ||
+    checkoutStatus === "legacy_payment_review" ||
+    checkoutStatus === "legacy_inventory_review" ||
+    checkoutStatus === "inventory_conflict"
+  ) return false;
   if (data.isPaymentDraft === true) return false;
+  const legacyProgressedStatuses = new Set([
+    "delivered",
+    "completed",
+    "cancelled",
+    "canceled",
+  ]);
+  if (
+    data.serverPaymentVerified !== true &&
+    !legacyProgressedStatuses.has(status)
+  ) return false;
   const paymentStatus = data.paymentStatus;
   const paidByStatus =
     paymentStatus === true || String(paymentStatus ?? "").toLowerCase() === "paid";
@@ -524,7 +585,7 @@ export async function addProduct(
   data: Omit<Product, "id" | "shopId" | "shopName" | "createdAt" | "updatedAt" | "status">
 ): Promise<string> {
   const docRef = await addDoc(collection(db, "Products"), {
-    ...data,
+    ...withProductMoney(data),
     shopId,
     shopName,
     isActive: true,
@@ -536,7 +597,7 @@ export async function addProduct(
 
 export async function updateProduct(productId: string, data: Partial<Product>): Promise<void> {
   await updateDoc(doc(db, "Products", productId), {
-    ...data,
+    ...withProductMoney(data),
     updatedAt: serverTimestamp(),
   });
 }
@@ -779,7 +840,7 @@ export function subscribeToShopType(
 
 export async function updateShopProfile(shopId: string, data: Partial<ShopProfile>): Promise<void> {
   await updateDoc(doc(db, "Shops", shopId), { ...data, updatedAt: serverTimestamp() });
-  const syncRes = await fetch("/api/admin/shop-profile", {
+  const syncRes = await authenticatedFetch("/api/admin/shop-profile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ shopId, ...data }),
@@ -869,13 +930,18 @@ export async function getOrderStats(shopId: string) {
   );
   const orders = snapshotToOrders(snap);
   const total = orders.length;
-  const completed = orders.filter((o) => o.status === "delivered").length;
+  const completedStatuses: ErrandStatus[] = ["delivered", "completed", "laundry_delivered"];
+  const completed = orders.filter((o) => completedStatuses.includes(o.status)).length;
   const pending = orders.filter((o) =>
-    ["pending", "accepted", "driver_at_shop", "preparing", "ready", "picked_up"].includes(o.status)
+    [
+      "pending", "accepted", "driver_at_shop", "preparing", "ready", "picked_up",
+      "laundry_picked_up_from_customer", "laundry_at_store", "laundry_processing",
+      "laundry_ready_for_return", "laundry_picked_up_from_store",
+    ].includes(o.status)
   ).length;
   const cancelled = orders.filter((o) => o.status === "cancelled").length;
   const totalRevenue = orders
-    .filter((o) => o.status === "delivered")
+    .filter((o) => completedStatuses.includes(o.status))
     .reduce((s, o) => s + storeOrderAmount(o), 0);
   const avgOrder = completed > 0 ? Math.round(totalRevenue / completed) : 0;
   return { total, completed, pending, cancelled, totalRevenue, avgOrder, orders };

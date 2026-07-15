@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
-const DJANGO_BASE_URL = "https://api.swiftrunapp.com";
+const DJANGO_BASE_URL = (process.env.ADMIN_BACKEND_URL || "https://api.swiftrunapp.com").replace(/\/$/, "");
 
 /**
  * The only writer of BusinessAds documents. Validates everything server-side
@@ -20,8 +21,16 @@ export async function POST(req: NextRequest) {
       };
     const payMethod = paymentMethod === "card" ? "card" : "balance";
 
-    if (!shopId || !title?.trim() || !days || days < 1 || days > 90) {
+    if (!shopId || !title?.trim() || !days || days < 1 || days > 90 || !["product", "store"].includes(targetType)) {
       return NextResponse.json({ ok: false, reason: "Missing or invalid fields" }, { status: 400 });
+    }
+    const access = await verifyBusinessShopAccess(req, shopId, "owner");
+    if (!access.ok) {
+      return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
+    }
+    const secret = process.env.BUSINESS_SYNC_SECRET;
+    if (!secret) {
+      return NextResponse.json({ ok: false, reason: "Not configured" }, { status: 500 });
     }
 
     const db = adminDb();
@@ -33,11 +42,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, reason: "Promotions are currently unavailable." }, { status: 403 });
     }
 
-    const shopSnap = await db.collection("Shops").doc(shopId).get();
-    if (!shopSnap.exists) {
-      return NextResponse.json({ ok: false, reason: "Shop not found" }, { status: 404 });
-    }
-    const shop = shopSnap.data()!;
+    const verifiedShopId = access.access.shopId;
+    const shop = access.access.shop;
     const cc = String(shop.countryCode ?? shop.isoCode ?? "").toUpperCase();
     const activeCountries: string[] = cfg.activeCountries ?? [];
     if (!cc || (activeCountries.length && !activeCountries.includes(cc))) {
@@ -56,7 +62,7 @@ export async function POST(req: NextRequest) {
       }
       const prodSnap = await db.collection("Products").doc(productId).get();
       const prod = prodSnap.data();
-      if (!prodSnap.exists || prod?.shopId !== shopId) {
+      if (!prodSnap.exists || prod?.shopId !== verifiedShopId) {
         return NextResponse.json({ ok: false, reason: "That product does not belong to your store." }, { status: 403 });
       }
       productImageUrl = prod?.imageUrl ?? "";
@@ -64,7 +70,7 @@ export async function POST(req: NextRequest) {
 
     // 3. Caps
     const mineSnap = await db.collection("BusinessAds")
-      .where("shopId", "==", shopId)
+      .where("shopId", "==", verifiedShopId)
       .where("status", "in", ["pending_review", "active", "paused"]).get();
     if (mineSnap.size >= (cfg.maxAdsPerBusiness ?? 1)) {
       return NextResponse.json({ ok: false, reason: "All your ad slots are already in use." }, { status: 403 });
@@ -80,8 +86,8 @@ export async function POST(req: NextRequest) {
     const adRef = db.collection("BusinessAds").doc();
     const chargeRes = await fetch(`${DJANGO_BASE_URL}/api/ads/charge/`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shopId, adId: adRef.id, days, countryCode: cc, title: title.trim(), paymentMethod: payMethod }),
+      headers: { "Content-Type": "application/json", "X-Swiftrun-Sync-Secret": secret },
+      body: JSON.stringify({ shopId: verifiedShopId, adId: adRef.id, days, countryCode: cc, title: title.trim(), paymentMethod: payMethod }),
     });
     const charge = await chargeRes.json().catch(() => ({ ok: false }));
     if (!chargeRes.ok || !charge.ok) {
@@ -94,7 +100,7 @@ export async function POST(req: NextRequest) {
     const requiresApproval = cfg.requiresApproval !== false;
     const status = bannerUrl && requiresApproval ? "pending_review" : "active";
     await adRef.set({
-      shopId,
+      shopId: verifiedShopId,
       shopName: shop.name ?? "",
       countryCode: cc,
       state: shop.state ?? "",

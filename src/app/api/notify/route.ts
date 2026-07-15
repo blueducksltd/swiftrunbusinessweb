@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
 const COLORS: Record<string, string> = {
   order_new: "#056abf",
@@ -23,16 +24,18 @@ const ICONS: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { type, title, subtitle, shopEmail } = await req.json() as {
+    const { type, title, subtitle, shopId } = await req.json() as {
       type: string;
       title: string;
       subtitle: string;
-      shopEmail?: string;
+      shopId: string;
     };
+    const access = await verifyBusinessShopAccess(req, shopId);
+    if (!access.ok) return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
 
     const smtpUser = process.env.SMTP_USER;
     const smtpPass = process.env.SMTP_PASS;
-    const to = shopEmail || process.env.NOTIFY_EMAIL || smtpUser;
+    const to = String(access.access.shop.email ?? access.access.shop.ownerEmail ?? process.env.NOTIFY_EMAIL ?? smtpUser ?? "").trim();
 
     if (!smtpUser || !smtpPass || !to) {
       return NextResponse.json({ ok: false, reason: "SMTP not configured" });

@@ -19,6 +19,7 @@ import { db } from "@/lib/firebase";
 import { fmtCurrency } from "@/lib/currency";
 import { storeOrderAmount, type ErrandOrder } from "@/lib/firestore";
 import { isConfirmedErrandOrder } from "@/lib/firestore";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ const notifDoc = (shopId: string, id: string) =>
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
-export function useNotifications(shopId: string, shopEmail: string, shopCurrency?: string) {
+export function useNotifications(shopId: string, _shopEmail: string, shopCurrency?: string) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const ordersReady = useRef(false);
   const confirmedOrderIds = useRef<Set<string>>(new Set());
@@ -231,9 +232,9 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         ).catch(() => {});
       }
 
-      _sendEmail(notif, shopEmail);
+      _sendEmail(notif, shopId);
     },
-    [shopId, shopEmail]
+    [shopId]
   );
 
   // ── Orders stream ──────────────────────────────────────────────────────
@@ -261,7 +262,7 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
         if (firstConfirmed) {
           push({ id: `order_new_${id}`, type: "order_new", title: "New Order", subtitle: `#${num} - ${amt}`, ts: Date.now() });
         } else if (change.type === "modified") {
-          if (d.status === "delivered") {
+          if (["delivered", "completed", "laundry_delivered"].includes(d.status)) {
             push({ id: `done_${id}`, type: "order_delivered", title: "Order Completed", subtitle: `#${num} — ${amt}`, ts: Date.now() });
           } else if (d.status === "cancelled") {
             push({ id: `cancel_${id}`, type: "order_cancelled", title: "Order Cancelled", subtitle: cancellationSubtitle(num, amt, d), ts: Date.now() });
@@ -379,16 +380,16 @@ export function useNotifications(shopId: string, shopEmail: string, shopCurrency
 
 // ── Email helper ───────────────────────────────────────────────────────────
 
-async function _sendEmail(notif: Omit<AppNotification, "read">, shopEmail: string) {
+async function _sendEmail(notif: Omit<AppNotification, "read">, shopId: string) {
   try {
-    await fetch("/api/notify", {
+    await authenticatedFetch("/api/notify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         type: notif.type,
         title: notif.title,
         subtitle: notif.subtitle,
-        shopEmail,
+        shopId,
       }),
     });
   } catch {}

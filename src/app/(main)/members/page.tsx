@@ -13,6 +13,7 @@ import {
   type ShopMember,
 } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
 type Role = "Manager" | "Staff";
 type StatusFilter = "all" | "active" | "suspended";
@@ -80,7 +81,7 @@ export default function MembersPage() {
     if (!shopId) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/staff/create", {
+      const res = await authenticatedFetch("/api/staff/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -150,7 +151,7 @@ export default function MembersPage() {
     if (!confirm(`${willSuspend ? "Suspend" : "Reactivate"} ${emp.firstName}? They will ${willSuspend ? "lose" : "regain"} access immediately.`)) return;
     setSuspending(emp.id);
     try {
-      const res = await fetch("/api/staff/suspend", {
+      const res = await authenticatedFetch("/api/staff/suspend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -172,10 +173,12 @@ export default function MembersPage() {
     if (!changePwdFor || !newPwd) return;
     setChangingPwd(true);
     try {
-      const res = await fetch("/api/staff/set-password", {
+      const shopId = getShopId();
+      if (!shopId) return;
+      const res = await authenticatedFetch("/api/staff/set-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: changePwdFor.email, password: newPwd }),
+        body: JSON.stringify({ email: changePwdFor.email, password: newPwd, memberId: changePwdFor.id, shopId }),
       });
       const json = await res.json();
       if (json.ok) {
@@ -196,14 +199,13 @@ export default function MembersPage() {
     setResending(emp.id);
     try {
       await resendMemberInvitation(shopId, emp.id);
-      await fetch("/api/member-invite", {
+      await authenticatedFetch("/api/member-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           memberEmail: emp.email,
-          memberName: `${emp.firstName} ${emp.lastName}`.trim(),
-          shopName: getShopName(),
-          role: emp.role,
+          memberId: emp.id,
+          shopId,
           isResend: true,
         }),
       });

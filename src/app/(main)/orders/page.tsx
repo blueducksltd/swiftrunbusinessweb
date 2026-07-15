@@ -6,8 +6,9 @@ import { cn } from "@/lib/cn";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, updateOrderStatus, adjustReadyTime, type ErrandOrder, type ErrandStatus } from "@/lib/firestore";
 import { getShopId, getShopName } from "@/lib/session";
 import { fmtCurrency } from "@/lib/currency";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
-type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Cancelled";
+type OrderStatus = "New" | "Preparing" | "Ready" | "Picked Up" | "Completed" | "Cancelled";
 
 type DisplayOrder = {
   firestoreId: string;
@@ -58,6 +59,7 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
   Preparing:    "bg-amber-50 text-amber-700",
   Ready:        "bg-green-50 text-green-700",
   "Picked Up":  "bg-blue-50 text-[#056abf]",
+  Completed:     "bg-emerald-50 text-emerald-700",
   Cancelled:    "bg-red-50 text-red-700",
 };
 
@@ -67,6 +69,7 @@ const TABS: { label: string; value: OrderStatus | "All" }[] = [
   { label: "Preparing",   value: "Preparing" },
   { label: "Ready",       value: "Ready" },
   { label: "Picked Up",   value: "Picked Up" },
+  { label: "Completed",   value: "Completed" },
   { label: "Cancelled",   value: "Cancelled" },
 ];
 
@@ -76,16 +79,18 @@ const TAB_ACTIVE: Record<string, string> = {
   Preparing:   "bg-amber-500 text-white",
   Ready:       "bg-green-600 text-white",
   "Picked Up": "bg-[#056abf] text-white",
+  Completed:    "bg-emerald-600 text-white",
   Cancelled:   "bg-red-600 text-white",
 };
 
-const STEPS: OrderStatus[] = ["New", "Preparing", "Ready", "Picked Up"];
+const STEPS: OrderStatus[] = ["New", "Preparing", "Ready", "Picked Up", "Completed"];
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   New:         "bg-purple-100",
   Preparing:   "bg-amber-100",
   Ready:       "bg-green-100",
   "Picked Up": "bg-blue-100",
+  Completed:    "bg-emerald-100",
   Cancelled:   "bg-red-100",
 };
 
@@ -117,14 +122,31 @@ function itemFulfilledTotal(item: ErrandOrder["items"][number]): number {
   return (Number(item.total ?? 0) / qty) * fulfilledQty;
 }
 
+function calculatedRefundAmount(lineTotal: number, totalQty: number, unavailableQty: number): number {
+  if (totalQty <= 0) return 0;
+  return Math.round(((lineTotal * unavailableQty) / totalQty) * 100) / 100;
+}
+
 function mapStatus(s: ErrandStatus): OrderStatus {
   if (s === "cancelled") return "Cancelled";
-  if (s === "picked_up" || s === "delivered" || s === "laundry_picked_up_from_store") return "Picked Up";
+  if (s === "delivered" || s === "completed" || s === "laundry_delivered") return "Completed";
+  if (s === "picked_up" || s === "laundry_picked_up_from_store") return "Picked Up";
   if (s === "ready" || s === "laundry_ready_for_return") return "Ready";
   if (s === "preparing" || s === "laundry_processing" || s === "laundry_at_store") return "Preparing";
   // pending, accepted, driver_at_shop → store hasn't acted yet
   return "New";
 }
+
+const ITEM_REFUND_BLOCKED_STATUSES = new Set<ErrandStatus>([
+  "cancelled",
+  "payment_failed",
+  "payment_pending",
+  "picked_up",
+  "delivered",
+  "completed",
+  "laundry_picked_up_from_store",
+  "laundry_delivered",
+]);
 
 // What Firestore status the store should set next when they click the action button.
 function nextFirestoreStatus(current: ErrandStatus, orderType: "errand" | "laundry" = "errand"): ErrandStatus | null {
@@ -302,11 +324,11 @@ const EXTENSION_REASONS = [
   "Item needs special care",
 ];
 
-function notifyOrderStatus(orderId: string, customerId: string, driverId: string | null, status: string, shopName: string) {
-  fetch("/api/errand-notify", {
+function notifyOrderStatus(orderId: string, shopId: string, status: string) {
+  authenticatedFetch("/api/errand-notify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ orderId, customerId, driverId, status, shopName }),
+    body: JSON.stringify({ orderId, shopId, status }),
   }).catch(() => {});
 }
 
@@ -319,7 +341,16 @@ export default function OrdersPage() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [unavailableOpen, setUnavailableOpen] = useState(false);
-  const [unavailableItem, setUnavailableItem] = useState<{ orderId: string; shopId: string; itemKey: string; name: string; qty: number } | null>(null);
+  const [unavailableItem, setUnavailableItem] = useState<{
+    orderId: string;
+    shopId: string;
+    itemKey: string;
+    name: string;
+    totalQty: number;
+    currentUnavailableQty: number;
+    maxRequestQty: number;
+    lineTotal: number;
+  } | null>(null);
   const [unavailableQty, setUnavailableQty] = useState(1);
   const [unavailableReason, setUnavailableReason] = useState("");
   const [unavailableError, setUnavailableError] = useState("");
@@ -352,7 +383,7 @@ export default function OrdersPage() {
     const shopId = getShopId();
     if (!shopId) return;
     const unsubShop = subscribeToShop(shopId, (shop) => {
-      setShopCurrency(shop?.currency ?? "NGN");
+      setShopCurrency((shop?.currency ?? shop?.currencyCode ?? "NGN").toUpperCase());
     });
     const unsub = subscribeToOrders(shopId, (raw, newIds) => {
       setOrders(raw.map(toDisplay));
@@ -403,7 +434,7 @@ export default function OrdersPage() {
             : o
         )
       );
-      notifyOrderStatus(order.firestoreId, order.customerId, order.driverId, next, order.shopName);
+      notifyOrderStatus(order.firestoreId, order.shopId, next);
     } finally {
       setUpdating(false);
       setConfirmOpen(false);
@@ -462,7 +493,7 @@ export default function OrdersPage() {
             : o
         )
       );
-      notifyOrderStatus(order.firestoreId, order.customerId, order.driverId, "cancelled", order.shopName);
+      notifyOrderStatus(order.firestoreId, order.shopId, "cancelled");
     } finally {
       setUpdating(false);
       setRejectOpen(false);
@@ -475,18 +506,32 @@ export default function OrdersPage() {
     if (!unavailableItem) return;
     const reason = unavailableReason.trim();
     if (!reason) return;
+    const targetUnavailableQty = unavailableItem.currentUnavailableQty + unavailableQty;
+    const refundRequestQty = unavailableQty;
+    const refundAmount = calculatedRefundAmount(
+      unavailableItem.lineTotal,
+      unavailableItem.totalQty,
+      refundRequestQty,
+    );
+    if (shopCurrency.toUpperCase() === "NGN" && refundAmount <= 50) {
+      setUnavailableError("Paystack refunds must be above ₦50. Please offer the customer an alternative product instead.");
+      return;
+    }
 
     setUpdating(true);
     setUnavailableError("");
     try {
-      const res = await fetch("/api/errand-item-refund", {
+      const res = await authenticatedFetch("/api/errand-item-refund", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           orderId: unavailableItem.orderId,
           shopId: unavailableItem.shopId,
           itemKey: unavailableItem.itemKey,
-          unavailableQty,
+          targetUnavailableQty,
+          unavailableQty: targetUnavailableQty,
           reason,
           actorName: getShopName(),
         }),
@@ -789,24 +834,30 @@ export default function OrdersPage() {
                     const unavailableQtyForItem = Number(item.unavailableQty ?? 0);
                     const fulfilledQty = itemFulfilledQty(item);
                     const fulfilledTotal = itemFulfilledTotal(item);
-                    const hasRefundInFlight = Boolean(item.refundStatus && item.refundStatus !== "failed");
+                    const refundStatus = String(item.refundStatus ?? "").toLowerCase();
+                    const canCreateInitialRefund = unavailableQtyForItem === 0 && !refundStatus;
+                    const canTopUpProcessedRefund = refundStatus === "processed" && unavailableQtyForItem > 0;
                     const canMarkUnavailable =
-                      detailOrder.status !== "Cancelled" &&
-                      detailOrder.firestoreStatus !== "picked_up" &&
-                      detailOrder.firestoreStatus !== "delivered" &&
-                      detailOrder.firestoreStatus !== "laundry_picked_up_from_store" &&
-                      !hasRefundInFlight &&
-                      fulfilledQty > 0;
+                      !ITEM_REFUND_BLOCKED_STATUSES.has(detailOrder.firestoreStatus) &&
+                      fulfilledQty > 0 &&
+                      (canCreateInitialRefund || canTopUpProcessedRefund);
                     return (
                       <div key={key} className="space-y-1 rounded-lg bg-white p-2">
                         <div className="flex items-start justify-between gap-3 text-xs">
                           <div className="min-w-0">
                             <span className="font-semibold text-slate-700">{item.name}</span>
-                            {unavailableQtyForItem > 0 && (
+                            {unavailableQtyForItem > 0 && refundStatus === "processing" && (
+                              <p className="mt-0.5 text-[11px] font-black text-blue-700">REFUND PROCESSING</p>
+                            )}
+                            {unavailableQtyForItem > 0 && refundStatus !== "processing" && (
                               <p className="mt-0.5 text-[11px] font-bold text-amber-700">
-                                {unavailableQtyForItem >= Number(item.qty ?? 1)
-                                  ? "Unavailable, refund pending"
-                                  : `${unavailableQtyForItem} unavailable, refund pending`}
+                                {refundStatus === "processed"
+                                  ? `${unavailableQtyForItem} unavailable, refunded`
+                                  : refundStatus === "failed"
+                                    ? `${unavailableQtyForItem} unavailable, refund failed. Admin action required`
+                                    : refundStatus === "manual_review"
+                                      ? `${unavailableQtyForItem} unavailable, under review`
+                                      : `${unavailableQtyForItem} unavailable, refund pending`}
                               </p>
                             )}
                             {item.unavailableReason && (
@@ -827,7 +878,12 @@ export default function OrdersPage() {
                                     shopId: detailOrder.shopId,
                                     itemKey: key,
                                     name: item.name,
-                                    qty: fulfilledQty,
+                                    totalQty: Number(item.qty ?? 1),
+                                    currentUnavailableQty: unavailableQtyForItem,
+                                    maxRequestQty: fulfilledQty,
+                                    lineTotal: Number(item.total) > 0
+                                      ? Number(item.total)
+                                      : Number(item.price || 0) * Number(item.qty || 1),
                                   });
                                   setUnavailableQty(1);
                                   setUnavailableReason("");
@@ -836,7 +892,7 @@ export default function OrdersPage() {
                                 }}
                                 className="mt-1 text-[11px] font-black text-amber-700 hover:text-amber-800"
                               >
-                                Mark unavailable
+                                {unavailableQtyForItem > 0 ? "Mark more unavailable" : "Mark unavailable"}
                               </button>
                             )}
                           </div>
@@ -892,7 +948,7 @@ export default function OrdersPage() {
               >
                 Close
               </button>
-              {detailOrder.firestoreStatus !== "cancelled" && detailOrder.firestoreStatus !== "delivered" && detailOrder.firestoreStatus !== "picked_up" && detailOrder.firestoreStatus !== "laundry_picked_up_from_store" && (
+              {!ITEM_REFUND_BLOCKED_STATUSES.has(detailOrder.firestoreStatus) && (
                 <button
                   onClick={() => {
                     pendingRejectId.current = detailOrder.firestoreId;
@@ -1050,18 +1106,34 @@ export default function OrdersPage() {
             <p className="text-center text-sm text-slate-500 mb-5">
               Record the unavailable quantity for <span className="font-bold text-slate-700">{unavailableItem.name}</span>. SwiftRun will settle the customer refund from the admin policy.
             </p>
-            <label className="mb-1.5 block text-xs font-bold text-slate-600">Unavailable quantity</label>
+            <label className="mb-1.5 block text-xs font-bold text-slate-600">Additional unavailable quantity</label>
             <input
               type="number"
               min={1}
-              max={unavailableItem.qty}
+              max={unavailableItem.maxRequestQty}
+              step={1}
               value={unavailableQty}
               onChange={(e) => {
-                const next = Number(e.target.value || 1);
-                setUnavailableQty(Math.min(Math.max(1, next), unavailableItem.qty));
+                const next = Math.trunc(Number(e.target.value || 1));
+                setUnavailableQty(Math.min(Math.max(1, next), unavailableItem.maxRequestQty));
               }}
               className="mb-4 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 outline-none transition-colors focus:border-amber-300 focus:ring-2 focus:ring-amber-100"
             />
+            {shopCurrency.toUpperCase() === "NGN" && (
+              <div className={cn(
+                "mb-4 rounded-lg border px-3 py-2.5 text-xs font-semibold",
+                calculatedRefundAmount(unavailableItem.lineTotal, unavailableItem.totalQty, unavailableQty) <= 50
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-slate-50 text-slate-600",
+              )}>
+                <p className="font-black">
+                  Refund amount: {fmt(calculatedRefundAmount(unavailableItem.lineTotal, unavailableItem.totalQty, unavailableQty), shopCurrency)}
+                </p>
+                <p className="mt-1">
+                  Paystack only processes refunds above ₦50 after any refund fee. If the refundable amount is ₦50 or less, please offer the customer an alternative product instead.
+                </p>
+              </div>
+            )}
             <textarea
               value={unavailableReason}
               onChange={(e) => setUnavailableReason(e.target.value)}
@@ -1091,7 +1163,12 @@ export default function OrdersPage() {
               </button>
               <button
                 onClick={handleMarkUnavailable}
-                disabled={updating || unavailableReason.trim().length === 0}
+                disabled={
+                  updating ||
+                  unavailableReason.trim().length === 0 ||
+                  (shopCurrency.toUpperCase() === "NGN" &&
+                    calculatedRefundAmount(unavailableItem.lineTotal, unavailableItem.totalQty, unavailableQty) <= 50)
+                }
                 className="flex-1 h-10 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition-colors disabled:opacity-60"
               >
                 {updating ? "Saving…" : "Record"}

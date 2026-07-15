@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { fmtCurrency, fmtCurrencyCompact } from "@/lib/currency";
 import { storeOrderAmount, subscribeToOrders, subscribeToShop, type ErrandOrder } from "@/lib/firestore";
 import { getShopId } from "@/lib/session";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 
 function fmtTime(ts: unknown): string {
   if (!ts || typeof ts !== "object" || !("seconds" in ts)) return "—";
@@ -46,6 +47,7 @@ function isThisMonth(ts: unknown): boolean {
 
 type DateFilter = "today" | "week" | "month" | "all";
 type StatusFilter = "all" | "pending" | "completed" | "cancelled";
+const COMPLETED_STATUSES = ["delivered", "completed", "laundry_delivered"];
 
 function matchesDate(order: ErrandOrder, filter: DateFilter): boolean {
   if (filter === "all") return true;
@@ -56,9 +58,9 @@ function matchesDate(order: ErrandOrder, filter: DateFilter): boolean {
 
 function matchesStatus(order: ErrandOrder, filter: StatusFilter): boolean {
   if (filter === "all") return true;
-  if (filter === "completed") return order.status === "delivered" || order.status === "picked_up";
+  if (filter === "completed") return COMPLETED_STATUSES.includes(order.status);
   if (filter === "cancelled") return order.status === "cancelled";
-  return order.status !== "delivered" && order.status !== "picked_up" && order.status !== "cancelled";
+  return !COMPLETED_STATUSES.includes(order.status) && order.status !== "cancelled";
 }
 
 function matchesSearch(order: ErrandOrder, term: string): boolean {
@@ -104,7 +106,7 @@ export default function SalesPage() {
     });
     let cancelled = false;
     const loadFin = () => {
-      fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
+      authenticatedFetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
         .then((r) => r.json())
         .then((d) => { if (!cancelled && d?.found) setFin(d); })
         .catch(() => {});
@@ -120,12 +122,12 @@ export default function SalesPage() {
     [orders, dateFilter, statusFilter, searchTerm]
   );
 
-  const allCompleted = orders.filter((o) => o.status === "delivered" || o.status === "picked_up");
+  const allCompleted = orders.filter((o) => COMPLETED_STATUSES.includes(o.status));
 
   // Order counts (always from ALL orders, not filtered — matches the design's top-level counters)
   const todayOrders  = orders.filter((o) => isToday(o.createdAt));
-  const pending      = orders.filter((o) => o.status !== "delivered" && o.status !== "picked_up" && o.status !== "cancelled");
-  const completed    = orders.filter((o) => o.status === "delivered" || o.status === "picked_up");
+  const pending      = orders.filter((o) => !COMPLETED_STATUSES.includes(o.status) && o.status !== "cancelled");
+  const completed    = allCompleted;
   const cancelled    = orders.filter((o) => o.status === "cancelled");
 
   // Store sales from completed orders. This excludes delivery, service, and processing fees.

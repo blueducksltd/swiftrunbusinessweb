@@ -16,6 +16,14 @@ type LiveOrder = {
   time: string;
 };
 
+const COMPLETED_ORDER_STATUSES = new Set(["delivered", "completed", "laundry_delivered"]);
+
+function liveStatus(status: ErrandOrder["status"]): string {
+  if (status === "ready" || status === "laundry_ready_for_return") return "Ready";
+  if (status === "picked_up" || status === "laundry_picked_up_from_store") return "Picked up";
+  return "Preparing";
+}
+
 function timeAgo(ts: unknown): string {
   if (!ts) return "just now";
   if (typeof ts === "object" && ts !== null && "seconds" in ts) {
@@ -55,14 +63,18 @@ export default function DashboardPage() {
     const unsubOrders = subscribeToOrders(shopId, (orders) => {
       setAllOrders(orders);
       const live = orders
-        .filter((o) => ["pending", "accepted", "driver_at_shop", "preparing", "ready"].includes(o.status))
+        .filter((o) => [
+          "pending", "accepted", "driver_at_shop", "preparing", "ready",
+          "laundry_picked_up_from_customer", "laundry_at_store", "laundry_processing",
+          "laundry_ready_for_return", "laundry_picked_up_from_store",
+        ].includes(o.status))
         .slice(0, 5)
         .map((o) => ({
           id: o.orderNumber || o.id.slice(0, 8).toUpperCase(),
           customer: o.customerName || "Customer",
           items: o.items.map((i) => i.name).join(", ") || "—",
           totalRaw: storeOrderAmount(o),
-          status: o.status === "ready" ? "Ready" : o.status === "picked_up" ? "Picked up" : "Preparing",
+          status: liveStatus(o.status),
           time: timeAgo(o.createdAt),
         }));
       setLiveOrders(live);
@@ -86,7 +98,7 @@ export default function DashboardPage() {
       });
     }
     for (const o of allOrders) {
-      if (o.status !== "delivered" && o.status !== "picked_up") continue;
+      if (!COMPLETED_ORDER_STATUSES.has(o.status)) continue;
       const created = o.createdAt?.toDate?.();
       if (!created) continue;
       const idx = (now.getFullYear() - created.getFullYear()) * 12 +

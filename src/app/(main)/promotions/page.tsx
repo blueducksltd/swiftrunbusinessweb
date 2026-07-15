@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { getShopId, getRole } from "@/lib/session";
+import { authenticatedFetch } from "@/lib/authenticated-fetch";
 import {
   adsAvailableForShop,
   deleteAd,
@@ -132,7 +133,7 @@ export default function PromotionsPage() {
     setContinueSubmitting(true);
     try {
       if (continuePayMethod === "balance") {
-        const res = await fetch("/api/ads/resume", {
+        const res = await authenticatedFetch("/api/ads/resume", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -153,7 +154,7 @@ export default function PromotionsPage() {
         return;
       }
 
-      const res = await fetch("/api/ads/pay-init", {
+      const res = await authenticatedFetch("/api/ads/pay-init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -184,7 +185,7 @@ export default function PromotionsPage() {
     const u2 = subscribeToShop(shopId, setShop);
     const u3 = subscribeToMyAds(shopId, setAds);
     const u4 = subscribeToProducts(shopId, setProducts);
-    fetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
+    authenticatedFetch(`/api/business/financial-status?shop_id=${encodeURIComponent(shopId)}`)
       .then((r) => r.json())
       .then((d) => { if (d?.found) setFin(d); })
       .catch(() => {});
@@ -211,10 +212,10 @@ export default function PromotionsPage() {
     const ref = params.get("ad_ref");
     if (!ref) return;
     const sessionId = params.get("session_id") ?? "";
-    fetch("/api/ads/pay-verify", {
+    authenticatedFetch("/api/ads/pay-verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reference: ref, session_id: sessionId }),
+      body: JSON.stringify({ shopId, reference: ref, session_id: sessionId }),
     })
       .then((r) => r.json())
       .then((d) => setNotice(d.ok
@@ -222,7 +223,7 @@ export default function PromotionsPage() {
         : (d.reason ?? "We could not confirm your payment.")))
       .catch(() => setNotice("We could not confirm your payment."))
       .finally(() => window.history.replaceState({}, "", "/promotions"));
-  }, []);
+  }, [shopId]);
 
   const countryCode = (shop?.countryCode ?? shop?.isoCode ?? "").toUpperCase();
   const available = adsAvailableForShop(cfg, countryCode);
@@ -316,7 +317,7 @@ export default function PromotionsPage() {
       if (payMethod === "card") {
         // Card: get a gateway checkout URL from Django and hand off. The ad
         // is created only after the payment verifies on return.
-        const res = await fetch("/api/ads/pay-init", {
+        const res = await authenticatedFetch("/api/ads/pay-init", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...adBody, email: shop?.email ?? shop?.ownerEmail ?? "" }),
@@ -330,7 +331,7 @@ export default function PromotionsPage() {
         return;
       }
 
-      const res = await fetch("/api/ads/create", {
+      const res = await authenticatedFetch("/api/ads/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(adBody),

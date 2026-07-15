@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,10 +13,12 @@ export async function POST(req: NextRequest) {
     if (!email || !shopId) {
       return NextResponse.json({ ok: false, reason: "Missing email or shopId" }, { status: 400 });
     }
+    const access = await verifyBusinessShopAccess(req, shopId, "owner");
+    if (!access.ok) return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
     const auth = adminAuth();
     const db = adminDb();
     const normalizedEmail = email.toLowerCase().trim();
-    const membersRef = db.collection("Shops").doc(shopId).collection("members");
+    const membersRef = db.collection("Shops").doc(access.access.shopId).collection("members");
 
     const memberRef = memberId
       ? membersRef.doc(memberId)
@@ -29,6 +32,9 @@ export async function POST(req: NextRequest) {
     }
 
     const member = memberSnap.data() ?? {};
+    if (String(member.email ?? "").toLowerCase().trim() !== normalizedEmail) {
+      return NextResponse.json({ ok: false, reason: "Staff member not found for this shop" }, { status: 404 });
+    }
     const authUid = typeof member.authUid === "string" && member.authUid
       ? member.authUid
       : memberRef.id;

@@ -2,18 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { adminDb } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { verifyBusinessShopAccess } from "@/lib/business-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { category, subject, message, shopId, shopName, role, contactEmail } =
+    const { category, subject, message, shopId } =
       await req.json() as {
         category: string;
         subject: string;
         message: string;
         shopId: string;
-        shopName: string;
-        role: string;
-        contactEmail?: string;
       };
 
     if (!shopId || !subject?.trim() || !message?.trim()) {
@@ -22,12 +20,17 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    const access = await verifyBusinessShopAccess(req, shopId);
+    if (!access.ok) return NextResponse.json({ ok: false, reason: access.error }, { status: access.status });
+    const shopName = String(access.access.shop.name ?? "");
+    const role = access.access.role === "owner" ? "owner" : access.access.memberRole;
+    const contactEmail = access.access.email;
 
     // 1) Persist the ticket so the admin portal can list it and raise a
     //    notification. external_id for the admin side is this doc id.
     const db = adminDb();
     const ref = await db.collection("supportTickets").add({
-      shopId,
+      shopId: access.access.shopId,
       shopName: shopName || "",
       role: role || "",
       category: category || "Other",
